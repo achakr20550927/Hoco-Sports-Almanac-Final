@@ -20,10 +20,10 @@ In Netlify, go to **Site configuration -> Environment variables** and add:
 
 ```text
 ADMIN_EMAILS=client-email@example.com
-STRIPE_SECRET_KEY=sk_live_or_test_key
+STRIPE_SECRET_KEY=replace_me
 STRIPE_MONTHLY_PRICE_ID=price_monthly_id
 STRIPE_ANNUAL_PRICE_ID=price_annual_id
-STRIPE_WEBHOOK_SECRET=whsec_webhook_secret
+STRIPE_WEBHOOK_SECRET=replace_me
 ```
 
 Use comma-separated emails for multiple admins.
@@ -52,6 +52,9 @@ https://YOUR-NETLIFY-SITE.netlify.app/.netlify/functions/stripe-webhook
 checkout.session.completed
 customer.subscription.updated
 customer.subscription.deleted
+invoice.payment_failed
+charge.refunded
+charge.dispute.created
 ```
 
 4. Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
@@ -62,11 +65,12 @@ The frontend hides Admin unless the logged-in email is in the admin list.
 
 For production security, every write function also enforces admin access server-side. The included `netlify/functions/_admin.js` reads `ADMIN_EMAILS` and rejects non-admin write requests unless Netlify provides an authenticated user whose email matches the env var.
 
-Enable Netlify Identity for real accounts before production launch:
+The current browser account form is a prototype. Enable and wire a real authentication provider before production launch:
 
 1. Netlify Project configuration -> Identity -> Enable Identity.
 2. Set Registration to Open if readers can self-sign up.
-3. For local development only, set `ALLOW_DEV_ADMIN_HEADER=true` so the browser prototype can pass the logged-in email to admin functions. Do not set this variable in production.
+3. Update the frontend to use trusted Identity sessions for login/signup.
+4. Confirm article write functions receive a trusted authenticated user.
 
 ## 7. Current Storage
 

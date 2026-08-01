@@ -1215,13 +1215,10 @@ window.addEventListener("scroll", () => {
 
 if (new URLSearchParams(location.search).get("checkout") === "success") {
   if (state.user?.email) {
-    state.user.subscription = "active";
-    upsertAccount({ ...state.user, subscription: "active", accountType: "paid" });
-    saveState();
     syncMember();
   }
   history.replaceState({}, "", location.pathname);
-  setTimeout(() => showToast("Subscription activated."), 300);
+  setTimeout(() => showToast("Payment received. Access updates after Stripe confirms your subscription."), 300);
 }
 
 render();

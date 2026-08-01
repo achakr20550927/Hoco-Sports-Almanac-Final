@@ -1,41 +1,47 @@
 const { getStore } = require("@netlify/blobs");
 const { requireAdmin } = require("./_admin");
-
-const json = (statusCode, body) => ({
-  statusCode,
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify(body),
-});
+const { normalizeArticle } = require("./_article-validation");
+const { rateLimit } = require("./_rate-limit");
+const { json, logSafe, safeError } = require("./_security");
 
 exports.handler = async (event, context) => {
   const store = getStore("articles");
 
   if (event.httpMethod === "GET") {
     const raw = await store.get("published", { type: "json" });
-    return json(200, { articles: raw || [] });
+    const articles = (raw || []).filter((article) => (article.status || "published") === "published");
+    return json(200, { articles }, { "cache-control": "public, max-age=60" });
   }
+
+  const limited = rateLimit(event, { key: "articles:mutate", limit: 30, windowMs: 60_000 });
+  if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
 
   const admin = requireAdmin(event, context);
   if (!admin.ok) return admin.response;
 
   if (event.httpMethod === "POST" || event.httpMethod === "PUT") {
-    const article = JSON.parse(event.body || "{}");
-    if (!article.title || !article.slug) {
-      return json(400, { error: "Article title and slug are required" });
+    try {
+      const article = JSON.parse(event.body || "{}");
+      const raw = await store.get("published", { type: "json" });
+      const articles = raw || [];
+      const existingArticle = articles.find((item) => item.id === article.id);
+      const nextArticle = {
+        ...normalizeArticle(article, existingArticle),
+        updatedAt: new Date().toISOString(),
+        updatedBy: admin.email,
+      };
+      const duplicateSlug = articles.find((item) => item.slug === nextArticle.slug && item.id !== nextArticle.id);
+      if (duplicateSlug) return json(409, { error: "Another article already uses this slug." });
+      const existing = articles
+        .filter((item) => item.id !== nextArticle.id)
+        .map((item) => (nextArticle.featured && nextArticle.status === "published" ? { ...item, featured: false } : item));
+      const next = [nextArticle, ...existing];
+      await store.setJSON("published", next);
+      logSafe("article.saved", { articleId: nextArticle.id, admin: admin.email, status: nextArticle.status });
+      return json(200, { article: nextArticle, articles: next });
+    } catch (error) {
+      return json(error.statusCode || 400, safeError(error.message || "Article could not be saved."));
     }
-    const raw = await store.get("published", { type: "json" });
-    const articles = raw || [];
-    const nextArticle = {
-      ...article,
-      updatedAt: new Date().toISOString(),
-      author: article.author || "Willie Sean Coughlan",
-    };
-    const existing = articles
-      .filter((item) => item.id !== nextArticle.id)
-      .map((item) => (nextArticle.featured ? { ...item, featured: false } : item));
-    const next = [nextArticle, ...existing];
-    await store.setJSON("published", next);
-    return json(200, { article: nextArticle, articles: next });
   }
 
   if (event.httpMethod === "DELETE") {
@@ -43,6 +49,7 @@ exports.handler = async (event, context) => {
     const raw = await store.get("published", { type: "json" });
     const articles = (raw || []).filter((item) => item.id !== id);
     await store.setJSON("published", articles);
+    logSafe("article.deleted", { articleId: id, admin: admin.email });
     return json(200, { articles });
   }
 

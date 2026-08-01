@@ -5,10 +5,12 @@
   "description": "HoCo Sports Almanac static frontend with Netlify function hooks for admin publishing and Stripe subscriptions.",
   "scripts": {
     "start": "python3 -m http.server 4173",
-    "serve": "netlify dev"
+    "serve": "netlify dev",
+    "test": "node --test"
   },
   "dependencies": {
     "@netlify/blobs": "^8.2.0",
+    "sanitize-html": "^2.17.6",
     "stripe": "^17.5.0"
   }
 }

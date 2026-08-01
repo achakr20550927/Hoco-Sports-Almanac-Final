@@ -1,10 +1,5 @@
 const { getUserEmail, isAdminEmail } = require("./_admin");
-
-const json = (statusCode, body) => ({
-  statusCode,
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify(body),
-});
+const { json } = require("./_security");
 
 exports.handler = async (event, context) => {
   if (event.httpMethod !== "GET") {

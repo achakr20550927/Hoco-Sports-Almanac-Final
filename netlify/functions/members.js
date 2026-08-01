@@ -1,11 +1,7 @@
 const { getStore } = require("@netlify/blobs");
 const { getUserEmail } = require("./_admin");
-
-const json = (statusCode, body) => ({
-  statusCode,
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify(body),
-});
+const { rateLimit } = require("./_rate-limit");
+const { json } = require("./_security");
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -38,6 +34,9 @@ exports.handler = async (event, context) => {
     return json(405, { error: "Method not allowed" });
   }
 
+  const limited = rateLimit(event, { key: "members:post", limit: 12, windowMs: 60_000 });
+  if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
+
   const body = JSON.parse(event.body || "{}");
   const email = normalizeEmail(body.email);
   if (!email) return json(400, { error: "Email is required" });
@@ -48,7 +47,7 @@ exports.handler = async (event, context) => {
   }
 
   const nextMember = {
-    name: body.name || existing?.name || email.split("@")[0],
+    name: String(body.name || existing?.name || email.split("@")[0]).slice(0, 120),
     email,
     subscription: existing?.subscription || "free",
     accountType: existing?.accountType || "free",

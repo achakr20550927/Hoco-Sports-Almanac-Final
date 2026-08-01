@@ -1,8 +1,8 @@
+const { adminEmails } = require("./_config");
+const { json } = require("./_security");
+
 function parseAdminEmails() {
-  return (process.env.ADMIN_EMAILS || "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
+  return adminEmails();
 }
 
 function getUserEmail(event, context) {
@@ -21,11 +21,7 @@ function requireAdmin(event, context) {
   if (!isAdminEmail(email)) {
     return {
       ok: false,
-      response: {
-        statusCode: 403,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ error: "Admin access required" }),
-      },
+      response: json(403, { error: "Admin access required" }),
     };
   }
   return { ok: true, email };

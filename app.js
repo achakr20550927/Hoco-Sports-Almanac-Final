@@ -71,7 +71,7 @@ const seedArticles = [
     year: 2026,
     title: "The Centennial Guard Who Turned Winter Into a Statement",
     subtitle: "A senior's patience, a coach's trust, and the closing stretch that changed a playoff draw.",
-    author: document.getElementById("adminAuthor")?.value.trim() || AUTHOR_NAME,
+    author: AUTHOR_NAME,
     date: "June 19, 2026",
     readTime: 6,
     access: "paid",
@@ -269,7 +269,7 @@ async function syncMember() {
     if (!response.ok) return;
     const data = await response.json();
     if (data.member) {
-      state.user = { ...state.user, ...data.member };
+      mergeMemberIntoCurrentUser(data.member);
       upsertAccount(data.member);
       saveState();
       render();
@@ -301,6 +301,33 @@ function sportLabel(sport) {
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function displayName(user = state.user) {
+  const raw = String(user?.name || user?.email?.split("@")[0] || "Account").trim();
+  return raw.split(/\s+/)[0] || "Account";
+}
+
+function mergeMemberIntoCurrentUser(member) {
+  if (!member || !state.user?.email) return;
+  const fallbackName = state.user.email.split("@")[0];
+  const currentName = String(state.user.name || "").trim();
+  const memberName = String(member.name || "").trim();
+  state.user = {
+    ...state.user,
+    ...member,
+    name: currentName && currentName !== fallbackName ? currentName : memberName || currentName || fallbackName,
+  };
+}
+
+function openAccountAction() {
+  if (state.user?.email) {
+    routeTo("account");
+    return;
+  }
+  state.modal = "auth";
+  state.authTab = "login";
+  render();
 }
 
 function isAdmin(user = state.user) {
@@ -404,7 +431,7 @@ function header() {
         </nav>
         <div class="secondary-actions">
           <button class="icon-button" onclick="openSearch()" title="Search">⌕</button>
-          <button class="btn-secondary" onclick="state.modal='auth'; state.authTab='login'; render()">${state.user ? "Account" : "Login"}</button>
+          <button class="btn-secondary" onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Login"}</button>
           <button class="btn" onclick="routeTo('subscribe')">${isSubscriber() ? "Subscribed" : "Subscribe"}</button>
         </div>
       </div>
@@ -427,7 +454,7 @@ function footer() {
             <p>The independent Howard County sports almanac: broadsheet discipline, modern reader experience.</p>
           </div>
           <div><h4>Navigate</h4><a href="#" onclick="routeTo('home')">Home</a><a href="#" onclick="routeTo('archive')">Archive</a><a href="#" onclick="openSearch()">Search</a></div>
-          <div><h4>Account</h4><a href="#" onclick="state.modal='auth'; render()">Login</a><a href="#" onclick="routeTo('subscribe')">Subscribe</a><a href="#" onclick="routeTo('account')">My Account</a></div>
+          <div><h4>Account</h4><a href="#" onclick="openAccountAction()">${state.user ? "My Account" : "Login"}</a><a href="#" onclick="routeTo('subscribe')">Subscribe</a></div>
           <div><h4>Legal</h4><a href="#" onclick="routeTo('about')">About</a><a href="#" onclick="routeTo('contact')">Contact</a><a href="#">Privacy</a><a href="#">Terms</a></div>
         </div>
         <p class="meta">© 2026 ${SITE_NAME}. Independent publication prototype.</p>
@@ -438,7 +465,7 @@ function footer() {
       <button onclick="setSport('football')">Sports</button>
       <button onclick="openSearch()">Search</button>
       <button onclick="routeTo('archive')">Archive</button>
-      <button onclick="state.modal='auth'; render()">Account</button>
+      <button onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Account"}</button>
     </nav>
   `;
 }
@@ -643,7 +670,7 @@ function subscribePage() {
 function accountPage() {
   return `
     ${header()}
-    <section class="page-header"><div class="container"><span class="eyebrow">Account</span><h1>${state.user ? `Welcome, ${state.user.name}` : "Create an account or log in."}</h1><p class="page-deck">Manage subscription state, read meter, and billing portal handoff.</p></div></section>
+    <section class="page-header"><div class="container"><span class="eyebrow">Account</span><h1>${state.user ? `Welcome, ${escapeHtml(displayName())}` : "Create an account or log in."}</h1><p class="page-deck">Manage subscription state, read meter, and billing portal handoff.</p></div></section>
     <main class="main container">
       <div class="stats-grid">
         <div class="stat-card"><span class="eyebrow">Account Type</span><strong>${accountType()}</strong></div>
@@ -1018,14 +1045,21 @@ function openSearch() {
 
 async function login(mode) {
   const email = document.getElementById("email").value;
-  const firstName = document.getElementById("firstName")?.value || email.split("@")[0];
+  const normalizedEmail = normalizeEmail(email);
+  const firstNameInput = document.getElementById("firstName")?.value.trim();
   const existing = state.accounts.find((account) => normalizeEmail(account.email) === normalizeEmail(email));
+  const firstName = firstNameInput || existing?.name || normalizedEmail.split("@")[0];
   state.user = {
     name: firstName,
-    email: normalizeEmail(email),
+    email: normalizedEmail,
     subscription: existing?.subscription || state.user?.subscription || "free",
   };
   upsertAccount(state.user);
+  state.modal = null;
+  if (!state.pendingSubscriptionPlan) state.route = "account";
+  saveState();
+  render();
+  showToast(mode === "signup" ? `Welcome, ${displayName()}.` : `Welcome back, ${displayName()}.`);
   try {
     const response = await fetch(`${functionBase}/members`, {
       method: "POST",
@@ -1035,17 +1069,15 @@ async function login(mode) {
     if (response.ok) {
       const data = await response.json();
       if (data.member) {
-        state.user = { ...state.user, ...data.member };
+        mergeMemberIntoCurrentUser(data.member);
         upsertAccount(data.member);
+        saveState();
+        render();
       }
     }
   } catch (error) {
     // Member persistence is optional for plain static previews.
   }
-  state.modal = null;
-  saveState();
-  render();
-  showToast(mode === "signup" ? `Welcome, ${firstName}.` : `Welcome back, ${firstName}.`);
   if (state.pendingSubscriptionPlan) {
     const plan = state.pendingSubscriptionPlan;
     state.pendingSubscriptionPlan = null;

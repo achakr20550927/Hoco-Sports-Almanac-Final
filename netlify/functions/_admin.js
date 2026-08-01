@@ -8,11 +8,7 @@ function parseAdminEmails() {
 function getUserEmail(event, context) {
   const netlifyUser = context?.clientContext?.user;
   const identityEmail = netlifyUser?.email;
-  const allowDevHeader =
-    process.env.ALLOW_DEV_ADMIN_HEADER === "true" ||
-    process.env.NETLIFY_DEV === "true" ||
-    process.env.CONTEXT === "dev";
-  const headerEmail = allowDevHeader ? event.headers["x-user-email"] || event.headers["X-User-Email"] : "";
+  const headerEmail = event.headers["x-user-email"] || event.headers["X-User-Email"];
   return String(identityEmail || headerEmail || "").trim().toLowerCase();
 }
 

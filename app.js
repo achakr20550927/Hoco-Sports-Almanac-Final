@@ -8,6 +8,7 @@ const state = {
   adminTab: "publish",
   editingArticleId: null,
   pendingSubscriptionPlan: null,
+  adminVerified: JSON.parse(localStorage.getItem("hoco_admin_verified") || "false"),
   user: JSON.parse(localStorage.getItem("sp_user") || "null"),
   accounts: JSON.parse(localStorage.getItem("hoco_accounts") || "[]"),
   adminEmails: JSON.parse(localStorage.getItem("hoco_admin_emails") || '["admin@hocosportsalmanac.com"]'),
@@ -230,6 +231,7 @@ function saveState() {
   localStorage.setItem("sp_reads", JSON.stringify(state.reads));
   localStorage.setItem("hoco_accounts", JSON.stringify(state.accounts));
   localStorage.setItem("hoco_admin_emails", JSON.stringify(state.adminEmails));
+  localStorage.setItem("hoco_admin_verified", JSON.stringify(Boolean(state.adminVerified)));
 }
 
 function savePublishedArticles() {
@@ -276,6 +278,33 @@ async function syncMember() {
     }
   } catch (error) {
     // Keep local account state when backend is unavailable.
+  }
+}
+
+async function refreshAdminStatus() {
+  if (!state.user?.email) {
+    state.adminVerified = false;
+    saveState();
+    return;
+  }
+  try {
+    const response = await fetch(`${functionBase}/admin-status`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    state.adminVerified = Boolean(data.isAdmin);
+    if (state.adminVerified) {
+      state.user = {
+        ...state.user,
+        accountType: "admin",
+      };
+      upsertAccount({ ...state.user, accountType: "admin" });
+    }
+    saveState();
+    render();
+  } catch (error) {
+    // Keep local admin state when Netlify Functions are unavailable.
   }
 }
 
@@ -331,7 +360,12 @@ function openAccountAction() {
 }
 
 function isAdmin(user = state.user) {
-  return Boolean(user?.email && state.adminEmails.map(normalizeEmail).includes(normalizeEmail(user.email)));
+  return Boolean(
+    user?.email &&
+      (state.adminVerified ||
+        user.accountType === "admin" ||
+        state.adminEmails.map(normalizeEmail).includes(normalizeEmail(user.email)))
+  );
 }
 
 function accountType(user = state.user) {
@@ -1068,6 +1102,7 @@ async function login(mode) {
     email: normalizedEmail,
     subscription: existing?.subscription || state.user?.subscription || "free",
   };
+  state.adminVerified = false;
   upsertAccount(state.user);
   state.modal = null;
   if (!state.pendingSubscriptionPlan) state.route = "account";
@@ -1104,6 +1139,7 @@ async function login(mode) {
   } catch (error) {
     // Member persistence is optional for plain static previews.
   }
+  refreshAdminStatus();
   if (state.pendingSubscriptionPlan) {
     const plan = state.pendingSubscriptionPlan;
     state.pendingSubscriptionPlan = null;
@@ -1113,6 +1149,7 @@ async function login(mode) {
 
 function logout() {
   state.user = null;
+  state.adminVerified = false;
   saveState();
   render();
   showToast("Logged out.");
@@ -1190,3 +1227,4 @@ if (new URLSearchParams(location.search).get("checkout") === "success") {
 render();
 loadRemoteArticles();
 syncMember();
+refreshAdminStatus();

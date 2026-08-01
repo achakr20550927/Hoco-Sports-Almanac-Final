@@ -17,6 +17,7 @@ const state = {
     month: new Date().toISOString().slice(0, 7),
     article_ids: [],
   },
+  membersLoaded: false,
 };
 
 const AUTHOR_NAME = "Willie Sean Coughlan";
@@ -187,33 +188,6 @@ let articles = [
 
 const functionBase = "/.netlify/functions";
 
-if (!state.accounts.length) {
-  state.accounts = [
-    {
-      name: "Willie Sean Coughlan",
-      email: "admin@hocosportsalmanac.com",
-      subscription: "active",
-      accountType: "admin",
-      signedUpAt: new Date().toISOString(),
-    },
-    {
-      name: "Sample Paid Member",
-      email: "paid.member@example.com",
-      subscription: "active",
-      accountType: "paid",
-      signedUpAt: new Date().toISOString(),
-    },
-    {
-      name: "Sample Free Reader",
-      email: "free.reader@example.com",
-      subscription: "free",
-      accountType: "free",
-      signedUpAt: new Date().toISOString(),
-    },
-  ];
-  saveState();
-}
-
 function articleBody(article) {
   return [
     `${article.title} begins in the ordinary places where Howard County sports usually hide their meaning: an empty sideline, a bus ride home, a practice field with the lights humming above it. The almanac exists to preserve those details before they flatten into a final score.`,
@@ -303,8 +277,28 @@ async function refreshAdminStatus() {
     }
     saveState();
     render();
+    if (state.adminVerified) loadAdminMembers();
   } catch (error) {
     // Keep local admin state when Netlify Functions are unavailable.
+  }
+}
+
+async function loadAdminMembers() {
+  if (!isAdmin()) return;
+  try {
+    const response = await fetch(`${functionBase}/members?list=all`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (Array.isArray(data.members)) {
+      state.accounts = data.members;
+      state.membersLoaded = true;
+      saveState();
+      render();
+    }
+  } catch (error) {
+    // Keep local member list when Netlify Functions are unavailable.
   }
 }
 
@@ -360,11 +354,13 @@ function openAccountAction() {
 }
 
 function isAdmin(user = state.user) {
+  const email = normalizeEmail(user?.email);
+  const isCurrentUser = Boolean(email && email === normalizeEmail(state.user?.email));
   return Boolean(
-    user?.email &&
-      (state.adminVerified ||
+    email &&
+      ((isCurrentUser && state.adminVerified) ||
         user.accountType === "admin" ||
-        state.adminEmails.map(normalizeEmail).includes(normalizeEmail(user.email)))
+        state.adminEmails.map(normalizeEmail).includes(email))
   );
 }
 
@@ -796,10 +792,13 @@ function adminPanel() {
       <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Views</th><th>Actions</th></tr></thead><tbody>${articles.map((a, i) => `<tr><td>${a.title}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td>${(4200 - i * 317).toLocaleString()}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
   }
   if (state.adminTab === "subscribers") {
+    if (!state.membersLoaded) setTimeout(loadAdminMembers, 0);
     const paidMembers = state.accounts.filter((account) => account.subscription === "active");
-    return `<div class="section-heading"><h2>Members and Emails</h2><button class="btn-secondary" onclick="exportAccountsCsv()">Export CSV</button></div>
-      <div class="stats-grid"><div class="stat-card"><span class="eyebrow">Paid Members</span><strong>${paidMembers.length}</strong></div><div class="stat-card"><span class="eyebrow">Signed Up Emails</span><strong>${state.accounts.length}</strong></div><div class="stat-card"><span class="eyebrow">Admins</span><strong>${state.adminEmails.length}</strong></div></div>
-      <div class="table-wrap" style="margin-top:22px"><table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Account Type</th><th>Subscription</th><th>Signed Up</th></tr></thead><tbody>${state.accounts.map((account) => `<tr><td>${account.name}</td><td>${account.email}</td><td>${isAdmin(account) ? "admin" : account.accountType}</td><td>${account.subscription}</td><td>${new Date(account.signedUpAt).toLocaleDateString()}</td></tr>`).join("")}</tbody></table></div>`;
+    const adminMembers = state.accounts.filter((account) => isAdmin(account));
+    return `<div class="section-heading"><h2>Members and Emails</h2><div><button class="btn-secondary" onclick="loadAdminMembers()">Refresh Members</button> <button class="btn-secondary" onclick="exportAccountsCsv()">Export CSV</button></div></div>
+      <div class="stats-grid"><div class="stat-card"><span class="eyebrow">Paid Members</span><strong>${paidMembers.length}</strong></div><div class="stat-card"><span class="eyebrow">Signed Up Emails</span><strong>${state.accounts.length}</strong></div><div class="stat-card"><span class="eyebrow">Admins</span><strong>${adminMembers.length}</strong></div></div>
+      <p class="meta">${state.membersLoaded ? "Showing shared Netlify member records." : "Loading shared members. Local fallback may include only this browser's accounts."}</p>
+      <div class="table-wrap" style="margin-top:22px"><table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Account Type</th><th>Subscription</th><th>Signed Up</th></tr></thead><tbody>${state.accounts.map((account) => `<tr><td>${escapeHtml(account.name || "")}</td><td>${escapeHtml(account.email || "")}</td><td>${isAdmin(account) ? "admin" : escapeHtml(account.accountType || "free")}</td><td>${escapeHtml(account.subscription || "free")}</td><td>${account.signedUpAt ? new Date(account.signedUpAt).toLocaleDateString() : ""}</td></tr>`).join("") || `<tr><td colspan="5">No signups found yet.</td></tr>`}</tbody></table></div>`;
   }
   if (state.adminTab === "settings") {
     return `<div class="section-heading"><h2>Site Settings</h2><button class="btn" onclick="showToast('Settings saved for prototype.')">Save</button></div>

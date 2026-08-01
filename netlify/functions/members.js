@@ -1,5 +1,5 @@
 const { getStore } = require("@netlify/blobs");
-const { getUserEmail } = require("./_admin");
+const { getUserEmail, requireAdmin } = require("./_admin");
 const { rateLimit } = require("./_rate-limit");
 const { json } = require("./_security");
 
@@ -25,6 +25,13 @@ exports.handler = async (event, context) => {
   const members = (await store.get("accounts", { type: "json" })) || [];
 
   if (event.httpMethod === "GET") {
+    if (event.queryStringParameters?.list === "all") {
+      const admin = requireAdmin(event, context);
+      if (!admin.ok) return admin.response;
+      return json(200, {
+        members: members.map(publicMember).sort((a, b) => String(b.signedUpAt || "").localeCompare(String(a.signedUpAt || ""))),
+      });
+    }
     const email = normalizeEmail(getUserEmail(event, context) || event.queryStringParameters?.email);
     if (!email) return json(200, { member: null });
     return json(200, { member: publicMember(members.find((member) => member.email === email)) });

@@ -33,7 +33,7 @@ Use the Stripe secret key from the client's Stripe account if all subscription r
 ## 4. Create Stripe Products
 
 1. In Stripe Dashboard, create a product named `HoCo Sports Almanac`.
-2. Add a recurring monthly price: `$6.96/month`.
+2. Add a recurring monthly price: `$6.95/month`.
 3. Add a recurring annual price: `$24.95/year`.
 4. Copy each `price_...` ID into Netlify.
 

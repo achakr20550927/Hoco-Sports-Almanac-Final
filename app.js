@@ -419,8 +419,17 @@ function isSubscriber() {
   return state.user?.subscription === "active";
 }
 
+function hasUnlimitedReads() {
+  return isAdmin() || isSubscriber();
+}
+
 function readsRemaining() {
+  if (hasUnlimitedReads()) return "Unlimited";
   return Math.max(0, 5 - state.reads.count);
+}
+
+function readMeterLabel() {
+  return hasUnlimitedReads() ? "Unlimited reads" : `${readsRemaining()} free reads left`;
 }
 
 function markRead(article) {
@@ -428,7 +437,7 @@ function markRead(article) {
   if (state.reads.month !== month) {
     state.reads = { count: 0, month, article_ids: [] };
   }
-  if (!state.reads.article_ids.includes(article.id) && !isSubscriber()) {
+  if (!state.reads.article_ids.includes(article.id) && !hasUnlimitedReads()) {
     state.reads.article_ids.push(article.id);
     state.reads.count = state.reads.article_ids.length;
     saveState();
@@ -440,9 +449,9 @@ function canRead(article) {
   const type = accountType();
   if (type === "admin") return true;
   if (access === "admin") return false;
-  if (access === "paid") return type === "paid" || state.reads.count < 5 || state.reads.article_ids.includes(article.id);
+  if (access === "paid") return hasUnlimitedReads() || state.reads.count < 5 || state.reads.article_ids.includes(article.id);
   if (access === "free") return type === "free" || type === "paid";
-  return state.reads.count < 5 || state.reads.article_ids.includes(article.id) || type === "paid";
+  return state.reads.count < 5 || state.reads.article_ids.includes(article.id) || hasUnlimitedReads();
 }
 
 function header() {
@@ -550,7 +559,7 @@ function homePage() {
         <span class="kicker">Howard County Sports</span>
         <h1>${featured.title}</h1>
         <p>${featured.subtitle}</p>
-        <div class="hero-meta">${sportLabel(featured.sport)} · ${featured.date} · ${featured.readTime} min read · ${readsRemaining()} free reads left</div>
+        <div class="hero-meta">${sportLabel(featured.sport)} · ${featured.date} · ${featured.readTime} min read · ${readMeterLabel()}</div>
         <button class="btn" onclick="openArticle('${featured.slug}')">Read the Story</button>
       </div>
     </section>
@@ -575,7 +584,7 @@ function sidebar() {
   return `<aside class="sidebar">
     <section class="sidebar-box dark">
       <span class="eyebrow">Metered Access</span>
-      <h3>${readsRemaining()} free articles left this month</h3>
+      <h3>${hasUnlimitedReads() ? "Unlimited articles" : `${readsRemaining()} free articles left this month`}</h3>
       <p>Subscribe for unlimited access to every feature, archive story, and premium report.</p>
       <button class="btn" onclick="routeTo('subscribe')">Subscribe</button>
     </section>
@@ -688,7 +697,7 @@ function subscribePage() {
     <main class="main container">
       <div class="pricing-grid">
         <section class="price-card"><span class="eyebrow">Free</span><h2>Reader</h2><div class="price">$0</div><p>Five article reads per month, newsletter signup, and archive browsing.</p><button class="btn-secondary" onclick="state.modal='auth'; state.authTab='signup'; render()">Create Account</button></section>
-        <section class="price-card featured"><span class="eyebrow">Best Value</span><h2>Monthly</h2><div class="price">$6.96</div><p>Unlimited stories, premium features, and full almanac access.</p><button class="btn" onclick="subscribe('monthly')">Start Monthly</button></section>
+        <section class="price-card featured"><span class="eyebrow">Best Value</span><h2>Monthly</h2><div class="price">$6.95</div><p>Unlimited stories, premium features, and full almanac access.</p><button class="btn" onclick="subscribe('monthly')">Start Monthly</button></section>
         <section class="price-card"><span class="eyebrow">Annual</span><h2>Founding Member</h2><div class="price">$24.95</div><p>Full-year access, supporter badge, and early archive previews.</p><button class="btn" onclick="subscribe('annual')">Start Annual</button></section>
       </div>
     </main>

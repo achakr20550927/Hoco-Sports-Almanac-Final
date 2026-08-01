@@ -13,7 +13,7 @@
 ## Stripe
 
 - Product exists for HoCo Sports Almanac Membership.
-- Monthly recurring price is `$6.96/month`.
+- Monthly recurring price is `$6.95/month`.
 - Annual recurring price is `$24.95/year`.
 - Webhook endpoint is `https://hocosportsalmanac.com/.netlify/functions/stripe-webhook`.
 - Events selected:

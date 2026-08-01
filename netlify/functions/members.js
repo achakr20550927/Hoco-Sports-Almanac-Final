@@ -43,6 +43,10 @@ exports.handler = async (event, context) => {
   if (!email) return json(400, { error: "Email is required" });
 
   const existing = members.find((member) => member.email === email);
+  if (body.mode === "signup" && existing) {
+    return json(409, { error: "An account already exists for this email. Please log in instead." });
+  }
+
   const nextMember = {
     name: body.name || existing?.name || email.split("@")[0],
     email,

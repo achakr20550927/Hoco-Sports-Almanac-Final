@@ -1047,7 +1047,21 @@ async function login(mode) {
   const email = document.getElementById("email").value;
   const normalizedEmail = normalizeEmail(email);
   const firstNameInput = document.getElementById("firstName")?.value.trim();
-  const existing = state.accounts.find((account) => normalizeEmail(account.email) === normalizeEmail(email));
+  const existing = state.accounts.find((account) => normalizeEmail(account.email) === normalizedEmail);
+  if (mode === "signup" && existing) {
+    showToast("An account already exists for this email. Please log in instead.");
+    state.modal = "auth";
+    state.authTab = "login";
+    render();
+    setTimeout(() => {
+      const emailInput = document.getElementById("email");
+      if (emailInput) {
+        emailInput.value = normalizedEmail;
+        emailInput.focus();
+      }
+    }, 0);
+    return;
+  }
   const firstName = firstNameInput || existing?.name || normalizedEmail.split("@")[0];
   state.user = {
     name: firstName,
@@ -1064,8 +1078,20 @@ async function login(mode) {
     const response = await fetch(`${functionBase}/members`, {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify(state.user),
+      body: JSON.stringify({ ...state.user, mode }),
     });
+    if (response.status === 409) {
+      const data = await response.json();
+      showToast(data.error || "An account already exists for this email. Please log in instead.");
+      state.user = null;
+      state.accounts = state.accounts.filter((account) => normalizeEmail(account.email) !== normalizedEmail);
+      state.modal = "auth";
+      state.authTab = "login";
+      state.route = "home";
+      saveState();
+      render();
+      return;
+    }
     if (response.ok) {
       const data = await response.json();
       if (data.member) {

@@ -631,8 +631,8 @@ function subscribePage() {
     <main class="main container">
       <div class="pricing-grid">
         <section class="price-card"><span class="eyebrow">Free</span><h2>Reader</h2><div class="price">$0</div><p>Five article reads per month, newsletter signup, and archive browsing.</p><button class="btn-secondary" onclick="state.modal='auth'; state.authTab='signup'; render()">Create Account</button></section>
-        <section class="price-card featured"><span class="eyebrow">Best Value</span><h2>Monthly</h2><div class="price">$6.99</div><p>Unlimited stories, premium features, and full almanac access.</p><button class="btn" onclick="subscribe('monthly')">Start Monthly</button></section>
-        <section class="price-card"><span class="eyebrow">Annual</span><h2>Founding Member</h2><div class="price">$69</div><p>Two months free, supporter badge, and early archive previews.</p><button class="btn" onclick="subscribe('annual')">Start Annual</button></section>
+        <section class="price-card featured"><span class="eyebrow">Best Value</span><h2>Monthly</h2><div class="price">$6.96</div><p>Unlimited stories, premium features, and full almanac access.</p><button class="btn" onclick="subscribe('monthly')">Start Monthly</button></section>
+        <section class="price-card"><span class="eyebrow">Annual</span><h2>Founding Member</h2><div class="price">$24.95</div><p>Full-year access, supporter badge, and early archive previews.</p><button class="btn" onclick="subscribe('annual')">Start Annual</button></section>
       </div>
     </main>
     ${footer()}

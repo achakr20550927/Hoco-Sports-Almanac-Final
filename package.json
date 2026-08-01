@@ -1,0 +1,14 @@
+{
+  "name": "hoco-sports-almanac",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HoCo Sports Almanac static frontend with Netlify function hooks for admin publishing and Stripe subscriptions.",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "serve": "netlify dev"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.2.0",
+    "stripe": "^17.5.0"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+.netlify/
+.playwright-mcp/
+.DS_Store
+tmp/
+*.log
+*.png
+*.bak
+HC-Almanac-main/

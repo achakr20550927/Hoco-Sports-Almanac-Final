@@ -798,7 +798,7 @@ function adminPanel() {
   }
   if (state.adminTab === "articles") {
     return `<div class="section-heading"><h2>Article Manager</h2><button class="btn" onclick="state.adminTab='publish'; render()">New Article</button></div>
-      <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Views</th><th>Actions</th></tr></thead><tbody>${articles.map((a, i) => `<tr><td>${a.title}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td>${(4200 - i * 317).toLocaleString()}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Actions</th></tr></thead><tbody>${articles.map((a) => `<tr><td>${escapeHtml(a.title)}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
   }
   if (state.adminTab === "subscribers") {
     if (!state.membersLoaded) setTimeout(loadAdminMembers, 0);

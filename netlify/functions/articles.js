@@ -6,10 +6,14 @@ const { json, logSafe, safeError } = require("./_security");
 
 exports.handler = async (event, context) => {
   const store = getStore("articles");
+  const viewStore = getStore("article-views");
 
   if (event.httpMethod === "GET") {
     const raw = await store.get("published", { type: "json" });
-    const articles = (raw || []).filter((article) => (article.status || "published") === "published");
+    const views = (await viewStore.get("counts", { type: "json" })) || {};
+    const articles = (raw || [])
+      .filter((article) => (article.status || "published") === "published")
+      .map((article) => ({ ...article, views: Number(views[article.id] || 0) }));
     return json(200, { articles }, { "cache-control": "public, max-age=60" });
   }
 
@@ -27,6 +31,7 @@ exports.handler = async (event, context) => {
       const existingArticle = articles.find((item) => item.id === article.id);
       const nextArticle = {
         ...normalizeArticle(article, existingArticle),
+        views: Number(existingArticle?.views || article.views || 0),
         updatedAt: new Date().toISOString(),
         updatedBy: admin.email,
       };

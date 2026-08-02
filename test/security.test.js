@@ -4,6 +4,7 @@ const test = require("node:test");
 const { normalizeArticle } = require("../netlify/functions/_article-validation");
 const { adminEmails } = require("../netlify/functions/_config");
 const { redact } = require("../netlify/functions/_security");
+const { cleanId } = require("../netlify/functions/article-view");
 
 test("article sanitizer removes scripts and event handlers", () => {
   const article = normalizeArticle({
@@ -37,4 +38,11 @@ test("redaction hides Stripe secrets and bearer tokens", () => {
   assert.equal(output.includes(stripeKey), false);
   assert.equal(output.includes(webhookSecret), false);
   assert.equal(output.includes("token.value"), false);
+});
+
+test("article view ids are bounded and sanitized", () => {
+  const id = cleanId("../article<script>" + "x".repeat(200));
+  assert.equal(id.includes("<"), false);
+  assert.equal(id.includes("."), false);
+  assert.equal(id.length <= 120, true);
 });

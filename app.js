@@ -302,6 +302,22 @@ async function loadAdminMembers() {
   }
 }
 
+async function recordArticleView(articleId) {
+  if (!articleId) return;
+  try {
+    const response = await fetch(`${functionBase}/article-view`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: articleId }),
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    articles = articles.map((article) => (article.id === articleId ? { ...article, views: Number(data.views || 0) } : article));
+  } catch (error) {
+    // View tracking requires Netlify Functions; static previews skip it.
+  }
+}
+
 function slugify(value) {
   return value
     .toLowerCase()
@@ -798,7 +814,7 @@ function adminPanel() {
   }
   if (state.adminTab === "articles") {
     return `<div class="section-heading"><h2>Article Manager</h2><button class="btn" onclick="state.adminTab='publish'; render()">New Article</button></div>
-      <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Actions</th></tr></thead><tbody>${articles.map((a) => `<tr><td>${escapeHtml(a.title)}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Views</th><th>Actions</th></tr></thead><tbody>${articles.map((a) => `<tr><td>${escapeHtml(a.title)}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td>${Number(a.views || 0).toLocaleString()}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
   }
   if (state.adminTab === "subscribers") {
     if (!state.membersLoaded) setTimeout(loadAdminMembers, 0);
@@ -1060,6 +1076,8 @@ function render() {
 }
 
 function openArticle(slug) {
+  const article = articles.find((item) => item.slug === slug);
+  if (article) recordArticleView(article.id);
   state.route = `article:${slug}`;
   window.scrollTo({ top: 0, behavior: "smooth" });
   render();

@@ -1,6 +1,22 @@
 const sanitizeHtml = require("sanitize-html");
 
-const SPORTS = new Set(["football", "basketball", "baseball", "hockey", "soccer", "lacrosse", "wrestling", "track"]);
+const SPORTS = new Set([
+  "football",
+  "basketball",
+  "baseball",
+  "hockey",
+  "soccer",
+  "lacrosse",
+  "wrestling",
+  "track",
+  "cross country",
+  "golf",
+  "field hockey",
+  "flag football",
+  "softball",
+  "tennis",
+  "gymnastics",
+]);
 const ACCESS = new Set(["public", "free", "paid", "admin"]);
 const STATUSES = new Set(["draft", "published", "archived"]);
 

@@ -868,6 +868,11 @@ button {
   cursor: pointer;
 }
 
+.hero-upload-button {
+  width: 100%;
+  margin: 10px 0 4px;
+}
+
 .rich-editor {
   min-height: 520px;
   border: 1.5px solid var(--color-med-gray);
@@ -1143,6 +1148,7 @@ button {
     display: none;
   }
 
+  .secondary-actions .btn,
   .secondary-actions .btn-secondary {
     display: none;
   }

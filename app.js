@@ -22,7 +22,23 @@ const state = {
 
 const AUTHOR_NAME = "Willie Sean Coughlan";
 const SITE_NAME = "HoCo Sports Almanac";
-const sports = ["football", "basketball", "baseball", "hockey", "soccer", "lacrosse", "wrestling", "track"];
+const sports = [
+  "football",
+  "basketball",
+  "baseball",
+  "hockey",
+  "soccer",
+  "lacrosse",
+  "wrestling",
+  "track",
+  "cross country",
+  "golf",
+  "field hockey",
+  "flag football",
+  "softball",
+  "tennis",
+  "gymnastics",
+];
 const currentDate = new Intl.DateTimeFormat("en-US", {
   weekday: "long",
   month: "long",
@@ -47,6 +63,20 @@ const articleImages = {
     "https://images.unsplash.com/photo-1599058917212-d750089bc07e?auto=format&fit=crop&w=1400&q=80",
   hockey:
     "https://images.unsplash.com/photo-1515703407324-5f753afd8be8?auto=format&fit=crop&w=1400&q=80",
+  "cross country":
+    "https://images.unsplash.com/photo-1552674605-db6ffd4facb5?auto=format&fit=crop&w=1400&q=80",
+  golf:
+    "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1400&q=80",
+  "field hockey":
+    "https://images.unsplash.com/photo-1600679472829-3044539ce8ed?auto=format&fit=crop&w=1400&q=80",
+  "flag football":
+    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1400&q=80",
+  softball:
+    "https://images.unsplash.com/photo-1562077772-3bd90403f7f0?auto=format&fit=crop&w=1400&q=80",
+  tennis:
+    "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?auto=format&fit=crop&w=1400&q=80",
+  gymnastics:
+    "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=1400&q=80",
 };
 
 const seedArticles = [
@@ -790,6 +820,8 @@ function publishPanel() {
         <input class="input" id="adminYear" type="number" min="1900" max="2100" value="${draft.year || new Date().getFullYear()}" />
         <label class="field-label">Hero Image URL</label>
         <input class="input" id="adminImage" value="${escapeHtml(draft.image || "")}" placeholder="Paste an image URL, or leave blank for sport default" />
+        <label class="btn-secondary file-button hero-upload-button">Upload Hero Image<input type="file" accept="image/*" onchange="uploadHeroImage(event)" /></label>
+        <p class="meta" id="heroImageStatus">${draft.image ? "Hero image set." : "Paste a link or upload a hero image from your computer."}</p>
         <label class="field-label">Image Credit</label>
         <input class="input" id="adminImageCredit" value="${escapeHtml(draft.imageCredit || "")}" placeholder="Photo by..." />
         <label class="field-label">Credits</label>
@@ -862,7 +894,7 @@ function getDraftFromForm() {
     image: document.getElementById("adminImage")?.value.trim() || articleImages[sport] || articleImages.football,
     access: document.getElementById("adminAccess")?.value || "public",
     featured: Boolean(document.getElementById("adminFeatured")?.checked),
-    author: AUTHOR_NAME,
+    author: document.getElementById("adminAuthor")?.value.trim() || AUTHOR_NAME,
     imageCredit: document.getElementById("adminImageCredit")?.value.trim() || "",
     credits: document.getElementById("adminCredits")?.value.trim() || "",
     date: new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date()),
@@ -1040,6 +1072,26 @@ function insertUploadedImage(event) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => insertImageHtml(reader.result, file.name);
+  reader.readAsDataURL(file);
+  event.target.value = "";
+}
+
+function uploadHeroImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    showToast("Choose an image file for the hero image.");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const input = document.getElementById("adminImage");
+    const status = document.getElementById("heroImageStatus");
+    if (input) input.value = reader.result;
+    if (status) status.textContent = `Hero image uploaded: ${file.name}`;
+    showToast("Hero image uploaded.");
+  };
   reader.readAsDataURL(file);
   event.target.value = "";
 }

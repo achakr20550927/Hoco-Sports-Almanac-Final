@@ -24,6 +24,13 @@ test("article validation rejects invalid year and normalizes slug", () => {
   assert.equal(article.slug, "my-great-story");
 });
 
+test("article validation accepts expanded sport list", () => {
+  for (const sport of ["cross country", "golf", "field hockey", "flag football", "softball", "tennis", "gymnastics"]) {
+    const article = normalizeArticle({ title: `${sport} story`, sport, year: 2026 });
+    assert.equal(article.sport, sport);
+  }
+});
+
 test("admin email parsing trims spaces and wrapper parentheses", () => {
   const previous = process.env.ADMIN_EMAILS;
   process.env.ADMIN_EMAILS = "one@example.com, (two@example.com)";

@@ -25,6 +25,13 @@ function stripeConfig() {
   };
 }
 
+function webhookConfig() {
+  return {
+    secretKey: required("STRIPE_SECRET_KEY"),
+    webhookSecret: required("STRIPE_WEBHOOK_SECRET"),
+  };
+}
+
 function checkoutConfig() {
   const config = stripeConfig();
   return {
@@ -43,4 +50,4 @@ function adminEmails() {
     .filter(Boolean);
 }
 
-module.exports = { adminEmails, checkoutConfig, required, siteUrl, stripeConfig };
+module.exports = { adminEmails, checkoutConfig, required, siteUrl, stripeConfig, webhookConfig };

@@ -1,6 +1,6 @@
 const Stripe = require("stripe");
 const { getStore } = require("@netlify/blobs");
-const { stripeConfig } = require("./_config");
+const { webhookConfig } = require("./_config");
 const { json, logSafe, safeError } = require("./_security");
 
 function normalizeEmail(email) {
@@ -15,7 +15,7 @@ exports.handler = async (event) => {
   const rawBody = event.isBase64Encoded ? Buffer.from(event.body || "", "base64") : event.body;
 
   try {
-    const config = stripeConfig();
+    const config = webhookConfig();
     const stripe = new Stripe(config.secretKey);
     stripeEvent = stripe.webhooks.constructEvent(
       rawBody,

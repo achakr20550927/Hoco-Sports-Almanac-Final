@@ -33,12 +33,11 @@ function webhookConfig() {
 }
 
 function checkoutConfig() {
-  const config = stripeConfig();
   return {
-    secretKey: config.secretKey,
+    secretKey: required("STRIPE_SECRET_KEY"),
     prices: {
-      monthly: config.monthlyPriceId,
-      annual: config.annualPriceId,
+      monthly: required("STRIPE_MONTHLY_PRICE_ID"),
+      annual: required("STRIPE_ANNUAL_PRICE_ID"),
     },
   };
 }

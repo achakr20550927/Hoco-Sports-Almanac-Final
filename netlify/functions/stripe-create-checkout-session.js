@@ -1,8 +1,26 @@
 const Stripe = require("stripe");
 const { checkoutConfig, siteUrl } = require("./_config");
 const { rateLimit } = require("./_rate-limit");
-const { json, safeError } = require("./_security");
+const { json, logSafe, safeError } = require("./_security");
 const { subscriptionLineItem } = require("./_stripe-line-item");
+
+function taxSetupError(error) {
+  return /automatic tax|stripe tax|tax settings|tax registration|origin address/i.test(String(error?.message || ""));
+}
+
+async function createCheckoutSession(stripe, params) {
+  try {
+    return await stripe.checkout.sessions.create({
+      ...params,
+      automatic_tax: { enabled: true },
+      billing_address_collection: "auto",
+    });
+  } catch (error) {
+    if (!taxSetupError(error)) throw error;
+    logSafe("stripe.checkout.tax_fallback", { message: error.message });
+    return stripe.checkout.sessions.create(params);
+  }
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -25,7 +43,7 @@ exports.handler = async (event) => {
   try {
     const config = checkoutConfig();
     const stripe = new Stripe(config.secretKey);
-    const session = await stripe.checkout.sessions.create({
+    const session = await createCheckoutSession(stripe, {
       mode: "subscription",
       customer_email: normalizedEmail,
       client_reference_id: normalizedEmail,

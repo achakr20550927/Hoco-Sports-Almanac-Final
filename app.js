@@ -31,6 +31,8 @@ const sports = [
   "lacrosse",
   "wrestling",
   "track",
+  "volleyball",
+  "cheer",
   "cross country",
   "golf",
   "field hockey",
@@ -63,6 +65,10 @@ const articleImages = {
     "https://images.unsplash.com/photo-1599058917212-d750089bc07e?auto=format&fit=crop&w=1400&q=80",
   hockey:
     "https://images.unsplash.com/photo-1515703407324-5f753afd8be8?auto=format&fit=crop&w=1400&q=80",
+  volleyball:
+    "https://images.unsplash.com/photo-1592656094267-764a45160876?auto=format&fit=crop&w=1400&q=80",
+  cheer:
+    "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=1400&q=80",
   "cross country":
     "https://images.unsplash.com/photo-1552674605-db6ffd4facb5?auto=format&fit=crop&w=1400&q=80",
   golf:
@@ -230,6 +236,24 @@ function articleBody(article) {
   ];
 }
 
+function articleBodyHtml(article, unlocked) {
+  if (!article.bodyHtml) {
+    const body = articleBody(article);
+    const visible = unlocked ? body : body.slice(0, 4);
+    const hidden = unlocked ? [] : body.slice(4);
+    return `
+      ${visible.map((p, index) => (index === 2 ? `<blockquote>“A county game can carry the weight of a professional one without borrowing its scale.”</blockquote><p>${p}</p>` : `<p>${p}</p>`)).join("")}
+      ${hidden.length ? `<div class="hidden-copy">${hidden.map((p) => `<p>${p}</p>`).join("")}</div>${paywall()}` : ""}
+    `;
+  }
+  if (unlocked) return article.bodyHtml;
+  const template = document.createElement("template");
+  template.innerHTML = article.bodyHtml;
+  const blocks = Array.from(template.content.children).slice(0, 2);
+  const preview = blocks.length ? blocks.map((node) => node.outerHTML).join("") : "<p>Subscribe or log in to read this member story.</p>";
+  return `${preview}<div class="hidden-copy"></div>${paywall()}`;
+}
+
 function saveState() {
   localStorage.setItem("sp_user", JSON.stringify(state.user));
   localStorage.setItem("sp_reads", JSON.stringify(state.reads));
@@ -240,7 +264,11 @@ function saveState() {
 
 function savePublishedArticles() {
   const customArticles = articles.filter((article) => article.custom);
-  localStorage.setItem("hoco_published_articles", JSON.stringify(customArticles));
+  try {
+    localStorage.setItem("hoco_published_articles", JSON.stringify(customArticles));
+  } catch (error) {
+    localStorage.removeItem("hoco_published_articles");
+  }
 }
 
 function authHeaders() {
@@ -251,7 +279,7 @@ function authHeaders() {
 
 async function loadRemoteArticles() {
   try {
-    const response = await fetch(`${functionBase}/articles`);
+    const response = await fetch(`${functionBase}/articles?t=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
     const remoteArticles = Array.isArray(data.articles) ? data.articles : [];
@@ -259,7 +287,7 @@ async function loadRemoteArticles() {
       ...remoteArticles,
       ...seedArticles.filter((seed) => !remoteArticles.some((article) => article.id === seed.id)),
     ];
-    savePublishedArticles();
+    localStorage.removeItem("hoco_published_articles");
     render();
   } catch (error) {
     // Plain static hosting cannot call Netlify Functions; keep local articles.
@@ -492,12 +520,12 @@ function readMeterLabel() {
   return hasUnlimitedReads() ? "Unlimited reads" : `${readsRemaining()} free reads left`;
 }
 
-function markRead(article) {
+function markRead(article, unlocked) {
   const month = new Date().toISOString().slice(0, 7);
   if (state.reads.month !== month) {
     state.reads = { count: 0, month, article_ids: [] };
   }
-  if (!state.reads.article_ids.includes(article.id) && !hasUnlimitedReads()) {
+  if (unlocked && !state.reads.article_ids.includes(article.id) && !hasUnlimitedReads()) {
     state.reads.article_ids.push(article.id);
     state.reads.count = state.reads.article_ids.length;
     saveState();
@@ -509,7 +537,7 @@ function canRead(article) {
   const type = accountType();
   if (type === "admin") return true;
   if (access === "admin") return false;
-  if (access === "paid") return hasUnlimitedReads() || state.reads.count < 5 || state.reads.article_ids.includes(article.id);
+  if (access === "paid") return hasUnlimitedReads();
   if (access === "free") return type === "free" || type === "paid";
   return state.reads.count < 5 || state.reads.article_ids.includes(article.id) || hasUnlimitedReads();
 }
@@ -698,10 +726,8 @@ function archivePage() {
 function articlePage(slug) {
   const article = articles.find((item) => item.slug === slug) || articles[0];
   const unlocked = canRead(article);
-  markRead(article);
-  const body = articleBody(article);
-  const visible = unlocked ? body : body.slice(0, 4);
-  const hidden = unlocked ? [] : body.slice(4);
+  markRead(article, unlocked);
+  const bodyHtml = articleBodyHtml(article, unlocked);
   return `
     ${header()}
     <article class="article-shell">
@@ -718,8 +744,7 @@ function articlePage(slug) {
       <div class="article-content-wrap">
         <div class="share-bar"><button onclick="showToast('Share link copied.')">↗</button><button onclick="showToast('Story saved.')">★</button><button onclick="showToast('Bookmark added.')">▣</button></div>
         <div class="article-body ${unlocked ? "" : "locked"}">
-          ${article.bodyHtml ? article.bodyHtml : visible.map((p, index) => (index === 2 ? `<blockquote>“A county game can carry the weight of a professional one without borrowing its scale.”</blockquote><p>${p}</p>` : `<p>${p}</p>`)).join("")}
-          ${hidden.length ? `<div class="hidden-copy">${hidden.map((p) => `<p>${p}</p>`).join("")}</div>${paywall()}` : ""}
+          ${bodyHtml}
           ${unlocked && article.credits ? `<section class="credits-box"><h2>Credits</h2><p>${escapeHtml(article.credits).replaceAll("\n", "<br>")}</p></section>` : ""}
           <h2>Related Coverage</h2>
           <div class="article-grid">${articles.filter((item) => item.slug !== article.slug).slice(0, 2).map((item) => card(item)).join("")}</div>
@@ -757,8 +782,8 @@ function subscribePage() {
     <main class="main container">
       <div class="pricing-grid">
         <section class="price-card"><span class="eyebrow">Free</span><h2>Reader</h2><div class="price">$0</div><p>Five article reads per month, newsletter signup, and archive browsing.</p><button class="btn-secondary" onclick="state.modal='auth'; state.authTab='signup'; render()">Create Account</button></section>
-        <section class="price-card featured"><span class="eyebrow">Best Value</span><h2>Monthly</h2><div class="price">$6.95</div><p>Unlimited stories, premium features, and full almanac access.</p><button class="btn" onclick="subscribe('monthly')">Start Monthly</button></section>
-        <section class="price-card"><span class="eyebrow">Annual</span><h2>Founding Member</h2><div class="price">$24.95</div><p>Full-year access, supporter badge, and early archive previews.</p><button class="btn" onclick="subscribe('annual')">Start Annual</button></section>
+        <section class="price-card"><span class="eyebrow">Monthly</span><h2>Member</h2><div class="price">$6.95</div><p>Unlimited stories, premium features, and full almanac access.</p><button class="btn" onclick="subscribe('monthly')">Start Monthly</button></section>
+        <section class="price-card featured"><span class="eyebrow">Best Value</span><h2>Annual</h2><div class="price">$24.95</div><p>Full-year access, supporter badge, and early archive previews.</p><button class="btn" onclick="subscribe('annual')">Start Annual</button></section>
       </div>
     </main>
     ${footer()}
@@ -958,6 +983,7 @@ async function publishArticle() {
       ...remoteArticles,
       ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
     ];
+    localStorage.removeItem("hoco_published_articles");
   } catch (error) {
     savePublishedArticles();
     showToast(error.message || "Backend unavailable; saved in this browser only.");
@@ -1005,6 +1031,7 @@ async function deleteArticle(id) {
       ...remoteArticles,
       ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
     ];
+    localStorage.removeItem("hoco_published_articles");
   } catch (error) {
     savePublishedArticles();
     showToast(error.message || "Backend unavailable; deleted in this browser only.");

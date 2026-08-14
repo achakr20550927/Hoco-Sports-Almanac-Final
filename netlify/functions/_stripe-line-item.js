@@ -27,6 +27,7 @@ function subscriptionLineItem(plan, value) {
       recurring: {
         interval: isAnnual ? "year" : "month",
       },
+      tax_behavior: "inclusive",
       unit_amount: unitAmount,
     },
     quantity: 1,

@@ -14,7 +14,7 @@ exports.handler = async (event, context) => {
     const articles = (raw || [])
       .filter((article) => (article.status || "published") === "published")
       .map((article) => ({ ...article, views: Number(views[article.id] || 0) }));
-    return json(200, { articles }, { "cache-control": "public, max-age=60" });
+    return json(200, { articles }, { "cache-control": "no-store" });
   }
 
   const limited = rateLimit(event, { key: "articles:mutate", limit: 30, windowMs: 60_000 });

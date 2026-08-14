@@ -37,6 +37,8 @@ Use the Stripe secret key from the client's Stripe account if all subscription r
 3. Add a recurring annual price: `$24.95/year`.
 4. Copy each `price_...` ID into Netlify, or enter plain dollar amounts in Netlify if you want Checkout to create the recurring price data directly.
 
+Checkout requests Stripe Automatic Tax. In Stripe, enable and configure **Tax** for the client's account if sales tax should be calculated. When Netlify uses plain dollar amounts such as `6.95` and `24.95`, Checkout creates inclusive-tax recurring price data so the listed amount stays the displayed subscription price. If you use Stripe `price_...` IDs, set the tax behavior on those Prices in Stripe.
+
 ## 5. Configure Stripe Webhook
 
 1. In Stripe Dashboard, go to **Developers -> Webhooks**.

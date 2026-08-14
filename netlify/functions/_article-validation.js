@@ -9,6 +9,8 @@ const SPORTS = new Set([
   "lacrosse",
   "wrestling",
   "track",
+  "volleyball",
+  "cheer",
   "cross country",
   "golf",
   "field hockey",

@@ -26,7 +26,7 @@ test("article validation rejects invalid year and normalizes slug", () => {
 });
 
 test("article validation accepts expanded sport list", () => {
-  for (const sport of ["cross country", "golf", "field hockey", "flag football", "softball", "tennis", "gymnastics"]) {
+  for (const sport of ["volleyball", "cheer", "cross country", "golf", "field hockey", "flag football", "softball", "tennis", "gymnastics"]) {
     const article = normalizeArticle({ title: `${sport} story`, sport, year: 2026 });
     assert.equal(article.sport, sport);
   }
@@ -61,6 +61,7 @@ test("subscription line items accept Stripe price ids or dollar amounts", () => 
   const monthly = subscriptionLineItem("monthly", "6.95");
   assert.equal(monthly.price_data.unit_amount, 695);
   assert.equal(monthly.price_data.recurring.interval, "month");
+  assert.equal(monthly.price_data.tax_behavior, "inclusive");
 
   const annual = subscriptionLineItem("annual", "24.95");
   assert.equal(annual.price_data.unit_amount, 2495);

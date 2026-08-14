@@ -271,6 +271,10 @@ function savePublishedArticles() {
   }
 }
 
+function localStoredArticles() {
+  return JSON.parse(localStorage.getItem("hoco_published_articles") || "[]").filter((article) => article.custom);
+}
+
 function authHeaders() {
   const headers = { "content-type": "application/json" };
   if (state.user?.email) headers["x-user-email"] = state.user.email;
@@ -283,11 +287,15 @@ async function loadRemoteArticles() {
     if (!response.ok) return;
     const data = await response.json();
     const remoteArticles = Array.isArray(data.articles) ? data.articles : [];
+    if (!remoteArticles.length && localStoredArticles().length) {
+      render();
+      return;
+    }
     articles = [
       ...remoteArticles,
       ...seedArticles.filter((seed) => !remoteArticles.some((article) => article.id === seed.id)),
     ];
-    localStorage.removeItem("hoco_published_articles");
+    if (remoteArticles.length) localStorage.removeItem("hoco_published_articles");
     render();
   } catch (error) {
     // Plain static hosting cannot call Netlify Functions; keep local articles.
@@ -890,7 +898,9 @@ function adminPanel() {
     return publishPanel();
   }
   if (state.adminTab === "articles") {
+    const localOnly = localStoredArticles();
     return `<div class="section-heading"><h2>Article Manager</h2><button class="btn" onclick="state.adminTab='publish'; render()">New Article</button></div>
+      ${localOnly.length ? `<p class="account-note">${localOnly.length} article${localOnly.length === 1 ? "" : "s"} saved only in this browser. <button class="btn-secondary table-action" onclick="syncLocalArticles()">Sync to Website</button></p>` : ""}
       <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Views</th><th>Actions</th></tr></thead><tbody>${articles.map((a) => `<tr><td>${escapeHtml(a.title)}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td>${Number(a.views || 0).toLocaleString()}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
   }
   if (state.adminTab === "subscribers") {
@@ -992,6 +1002,42 @@ async function publishArticle() {
   state.adminTab = "articles";
   render();
   showToast("Article published.");
+}
+
+async function syncLocalArticles() {
+  const localOnly = localStoredArticles();
+  if (!localOnly.length) {
+    showToast("No local-only articles to sync.");
+    return;
+  }
+  try {
+    let remoteArticles = [];
+    for (const article of localOnly) {
+      const response = await fetch(`${functionBase}/articles`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(article),
+        credentials: "same-origin",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Could not sync ${article.title}`);
+      remoteArticles = Array.isArray(data.articles) ? data.articles : remoteArticles;
+    }
+    if (!remoteArticles.length) {
+      const response = await fetch(`${functionBase}/articles?t=${Date.now()}`, { cache: "no-store" });
+      const data = await response.json();
+      remoteArticles = Array.isArray(data.articles) ? data.articles : [];
+    }
+    articles = [
+      ...remoteArticles,
+      ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
+    ];
+    localStorage.removeItem("hoco_published_articles");
+    render();
+    showToast("Local articles synced to the website.");
+  } catch (error) {
+    showToast(error.message || "Local articles could not be synced.");
+  }
 }
 
 function previewDraft() {

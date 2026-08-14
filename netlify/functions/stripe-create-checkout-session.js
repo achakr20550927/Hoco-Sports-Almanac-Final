@@ -2,6 +2,7 @@ const Stripe = require("stripe");
 const { checkoutConfig, siteUrl } = require("./_config");
 const { rateLimit } = require("./_rate-limit");
 const { json, safeError } = require("./_security");
+const { subscriptionLineItem } = require("./_stripe-line-item");
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -28,7 +29,7 @@ exports.handler = async (event) => {
       mode: "subscription",
       customer_email: normalizedEmail,
       client_reference_id: normalizedEmail,
-      line_items: [{ price: config.prices[plan], quantity: 1 }],
+      line_items: [subscriptionLineItem(plan, config.prices[plan])],
       success_url: `${siteUrl()}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/?checkout=cancelled`,
       allow_promotion_codes: true,

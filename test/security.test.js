@@ -4,6 +4,7 @@ const test = require("node:test");
 const { normalizeArticle } = require("../netlify/functions/_article-validation");
 const { adminEmails } = require("../netlify/functions/_config");
 const { redact } = require("../netlify/functions/_security");
+const { subscriptionLineItem } = require("../netlify/functions/_stripe-line-item");
 const { cleanId } = require("../netlify/functions/article-view");
 
 test("article sanitizer removes scripts and event handlers", () => {
@@ -52,4 +53,16 @@ test("article view ids are bounded and sanitized", () => {
   assert.equal(id.includes("<"), false);
   assert.equal(id.includes("."), false);
   assert.equal(id.length <= 120, true);
+});
+
+test("subscription line items accept Stripe price ids or dollar amounts", () => {
+  assert.deepEqual(subscriptionLineItem("monthly", "price_123"), { price: "price_123", quantity: 1 });
+
+  const monthly = subscriptionLineItem("monthly", "6.95");
+  assert.equal(monthly.price_data.unit_amount, 695);
+  assert.equal(monthly.price_data.recurring.interval, "month");
+
+  const annual = subscriptionLineItem("annual", "24.95");
+  assert.equal(annual.price_data.unit_amount, 2495);
+  assert.equal(annual.price_data.recurring.interval, "year");
 });

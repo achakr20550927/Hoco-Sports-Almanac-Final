@@ -21,21 +21,21 @@ In Netlify, go to **Site configuration -> Environment variables** and add:
 ```text
 ADMIN_EMAILS=client-email@example.com
 STRIPE_SECRET_KEY=replace_me
-STRIPE_MONTHLY_PRICE_ID=price_monthly_id
-STRIPE_ANNUAL_PRICE_ID=price_annual_id
+STRIPE_MONTHLY_PRICE_ID=price_monthly_id_or_6.95
+STRIPE_ANNUAL_PRICE_ID=price_annual_id_or_24.95
 STRIPE_WEBHOOK_SECRET=replace_me
 ```
 
 Use comma-separated emails for multiple admins.
 
-Use the Stripe secret key from the client's Stripe account if all subscription revenue should land directly in that account. The monthly and annual `price_...` IDs must come from that same Stripe account.
+Use the Stripe secret key from the client's Stripe account if all subscription revenue should land directly in that account. The monthly and annual values can be Stripe `price_...` IDs from that same account, or plain dollar amounts such as `6.95` and `24.95`.
 
 ## 4. Create Stripe Products
 
 1. In Stripe Dashboard, create a product named `HoCo Sports Almanac`.
 2. Add a recurring monthly price: `$6.95/month`.
 3. Add a recurring annual price: `$24.95/year`.
-4. Copy each `price_...` ID into Netlify.
+4. Copy each `price_...` ID into Netlify, or enter plain dollar amounts in Netlify if you want Checkout to create the recurring price data directly.
 
 ## 5. Configure Stripe Webhook
 

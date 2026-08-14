@@ -1,5 +1,5 @@
 const Stripe = require("stripe");
-const { getStore } = require("@netlify/blobs");
+const { connectLambda, getStore } = require("@netlify/blobs");
 const { webhookConfig } = require("./_config");
 const { json, logSafe, safeError } = require("./_security");
 
@@ -12,6 +12,7 @@ function timestampToIso(timestamp) {
 }
 
 exports.handler = async (event) => {
+  connectLambda(event);
   const signature = event.headers["stripe-signature"];
   if (!signature) return json(400, { error: "Missing Stripe signature" });
 

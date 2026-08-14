@@ -1,5 +1,5 @@
 const Stripe = require("stripe");
-const { getStore } = require("@netlify/blobs");
+const { connectLambda, getStore } = require("@netlify/blobs");
 const { getUserEmail } = require("./_admin");
 const { required } = require("./_config");
 const { rateLimit } = require("./_rate-limit");
@@ -29,6 +29,7 @@ function publicMember(member) {
 }
 
 exports.handler = async (event, context) => {
+  connectLambda(event);
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }

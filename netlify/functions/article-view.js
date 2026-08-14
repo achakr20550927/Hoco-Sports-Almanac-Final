@@ -1,4 +1,4 @@
-const { getStore } = require("@netlify/blobs");
+const { connectLambda, getStore } = require("@netlify/blobs");
 const { rateLimit } = require("./_rate-limit");
 const { json } = require("./_security");
 
@@ -7,6 +7,7 @@ function cleanId(value) {
 }
 
 exports.handler = async (event) => {
+  connectLambda(event);
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }

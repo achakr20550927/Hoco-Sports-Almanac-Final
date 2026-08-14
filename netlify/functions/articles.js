@@ -1,10 +1,11 @@
-const { getStore } = require("@netlify/blobs");
+const { connectLambda, getStore } = require("@netlify/blobs");
 const { requireAdmin } = require("./_admin");
 const { normalizeArticle } = require("./_article-validation");
 const { rateLimit } = require("./_rate-limit");
 const { json, logSafe, safeError } = require("./_security");
 
 exports.handler = async (event, context) => {
+  connectLambda(event);
   const store = getStore("articles");
   const viewStore = getStore("article-views");
 

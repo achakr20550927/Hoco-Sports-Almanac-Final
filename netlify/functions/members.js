@@ -1,4 +1,4 @@
-const { getStore } = require("@netlify/blobs");
+const { connectLambda, getStore } = require("@netlify/blobs");
 const { getUserEmail, requireAdmin } = require("./_admin");
 const { rateLimit } = require("./_rate-limit");
 const { json } = require("./_security");
@@ -24,6 +24,7 @@ function publicMember(member) {
 }
 
 exports.handler = async (event, context) => {
+  connectLambda(event);
   const store = getStore("members");
   const members = (await store.get("accounts", { type: "json" })) || [];
 

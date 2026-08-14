@@ -936,6 +936,15 @@ button {
   font-size: 34px;
 }
 
+.account-note {
+  border-left: 4px solid var(--color-gold);
+  margin: 24px 0 6px;
+  padding: 12px 16px;
+  background: var(--color-light-bg);
+  color: var(--color-dark-gray);
+  font-weight: 700;
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;

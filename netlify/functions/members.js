@@ -15,6 +15,9 @@ function publicMember(member) {
     subscription: member.subscription || "free",
     accountType: member.accountType || (member.subscription === "active" ? "paid" : "free"),
     stripeCustomerId: member.stripeCustomerId,
+    stripeSubscriptionId: member.stripeSubscriptionId,
+    cancelAtPeriodEnd: Boolean(member.cancelAtPeriodEnd),
+    currentPeriodEnd: member.currentPeriodEnd,
     signedUpAt: member.signedUpAt,
     updatedAt: member.updatedAt,
   };
@@ -59,6 +62,9 @@ exports.handler = async (event, context) => {
     subscription: existing?.subscription || "free",
     accountType: existing?.accountType || "free",
     stripeCustomerId: existing?.stripeCustomerId,
+    stripeSubscriptionId: existing?.stripeSubscriptionId,
+    cancelAtPeriodEnd: Boolean(existing?.cancelAtPeriodEnd),
+    currentPeriodEnd: existing?.currentPeriodEnd,
     signedUpAt: existing?.signedUpAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

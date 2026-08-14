@@ -7,6 +7,10 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function timestampToIso(timestamp) {
+  return timestamp ? new Date(timestamp * 1000).toISOString() : undefined;
+}
+
 exports.handler = async (event) => {
   const signature = event.headers["stripe-signature"];
   if (!signature) return json(400, { error: "Missing Stripe signature" });
@@ -53,12 +57,18 @@ async function handleStripeEvent(stripe, stripeEvent) {
     if (!email) return;
     const normalized = normalizeEmail(email);
     const existing = raw.find((member) => member.email === normalized);
+    const subscriptionStatus = patch.subscription || existing?.subscription || "free";
+    const isAdmin = existing?.accountType === "admin";
+    const has = (key) => Object.prototype.hasOwnProperty.call(patch, key);
     const nextMember = {
       name: existing?.name || normalized.split("@")[0],
       email: normalized,
-      subscription: patch.subscription || existing?.subscription || "free",
-      accountType: patch.subscription === "active" ? "paid" : existing?.accountType || "free",
+      subscription: subscriptionStatus,
+      accountType: isAdmin ? "admin" : subscriptionStatus === "active" ? "paid" : "free",
       stripeCustomerId: patch.stripeCustomerId || existing?.stripeCustomerId,
+      stripeSubscriptionId: patch.stripeSubscriptionId || existing?.stripeSubscriptionId,
+      cancelAtPeriodEnd: subscriptionStatus === "active" && has("cancelAtPeriodEnd") ? Boolean(patch.cancelAtPeriodEnd) : Boolean(existing?.cancelAtPeriodEnd && subscriptionStatus === "active"),
+      currentPeriodEnd: has("currentPeriodEnd") ? patch.currentPeriodEnd : existing?.currentPeriodEnd,
       signedUpAt: existing?.signedUpAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -70,10 +80,19 @@ async function handleStripeEvent(stripe, stripeEvent) {
     const session = stripeEvent.data.object;
     const email = session.customer_details?.email || session.customer_email || session.metadata?.email || session.client_reference_id;
     if (session.mode !== "subscription" || !session.customer) return;
-    await upsert(email, {
+    const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+    const patch = {
       subscription: "active",
       stripeCustomerId: session.customer,
-    });
+      stripeSubscriptionId: subscriptionId,
+      cancelAtPeriodEnd: false,
+    };
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      patch.cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
+      patch.currentPeriodEnd = timestampToIso(subscription.current_period_end);
+    }
+    await upsert(email, patch);
   }
 
   if (stripeEvent.type === "customer.subscription.updated") {
@@ -82,6 +101,9 @@ async function handleStripeEvent(stripe, stripeEvent) {
     await upsert(customer.email || subscription.metadata?.email, {
       subscription: ["active", "trialing"].includes(subscription.status) ? "active" : subscription.status,
       stripeCustomerId: customer.id,
+      stripeSubscriptionId: subscription.id,
+      cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+      currentPeriodEnd: timestampToIso(subscription.current_period_end),
     });
   }
 
@@ -91,6 +113,9 @@ async function handleStripeEvent(stripe, stripeEvent) {
     await upsert(customer.email || subscription.metadata?.email, {
       subscription: "cancelled",
       stripeCustomerId: customer.id,
+      stripeSubscriptionId: subscription.id,
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: timestampToIso(subscription.current_period_end),
     });
   }
 

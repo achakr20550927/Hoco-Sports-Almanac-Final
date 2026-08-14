@@ -421,11 +421,16 @@ function upsertAccount(account) {
   const email = normalizeEmail(account.email);
   if (!email) return;
   const existing = state.accounts.find((item) => normalizeEmail(item.email) === email);
+  const has = (key) => Object.prototype.hasOwnProperty.call(account, key);
   const next = {
     name: account.name || existing?.name || email.split("@")[0],
     email,
     subscription: account.subscription || existing?.subscription || "free",
     accountType: account.accountType || existing?.accountType || (account.subscription === "active" ? "paid" : "free"),
+    stripeCustomerId: account.stripeCustomerId || existing?.stripeCustomerId,
+    stripeSubscriptionId: account.stripeSubscriptionId || existing?.stripeSubscriptionId,
+    cancelAtPeriodEnd: has("cancelAtPeriodEnd") ? Boolean(account.cancelAtPeriodEnd) : Boolean(existing?.cancelAtPeriodEnd),
+    currentPeriodEnd: has("currentPeriodEnd") ? account.currentPeriodEnd : existing?.currentPeriodEnd,
     signedUpAt: existing?.signedUpAt || new Date().toISOString(),
   };
   state.accounts = [next, ...state.accounts.filter((item) => normalizeEmail(item.email) !== email)];
@@ -463,6 +468,15 @@ function showToast(message) {
 
 function isSubscriber() {
   return state.user?.subscription === "active";
+}
+
+function isCancellationScheduled() {
+  return Boolean(state.user?.cancelAtPeriodEnd);
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 function hasUnlimitedReads() {
@@ -753,6 +767,11 @@ function subscribePage() {
 }
 
 function accountPage() {
+  const canManageSubscription = Boolean(state.user?.stripeCustomerId);
+  const showCancelSubscription = isSubscriber() && canManageSubscription && !isCancellationScheduled();
+  const cancellationNotice = isSubscriber() && isCancellationScheduled()
+    ? `<p class="account-note">Your subscription is cancelled for future billing. Paid access remains active${state.user?.currentPeriodEnd ? ` until ${formatDate(state.user.currentPeriodEnd)}` : " through the end of the current billing period"}.</p>`
+    : "";
   return `
     ${header()}
     <section class="page-header"><div class="container"><span class="eyebrow">Account</span><h1>${state.user ? `Welcome, ${escapeHtml(displayName())}` : "Create an account or log in."}</h1><p class="page-deck">Manage subscription state, read meter, and billing portal handoff.</p></div></section>
@@ -762,7 +781,8 @@ function accountPage() {
         <div class="stat-card"><span class="eyebrow">Free Reads</span><strong>${readsRemaining()}</strong></div>
         <div class="stat-card"><span class="eyebrow">Email List</span><strong>${state.user ? "Joined" : "Guest"}</strong></div>
       </div>
-      <p><button class="btn" onclick="${state.user?.stripeCustomerId ? "manageBilling()" : "routeTo('subscribe')"}">${state.user?.stripeCustomerId ? "Manage Billing" : "Subscribe"}</button> ${isAdmin() ? `<button class="btn-secondary" onclick="routeTo('admin')">Admin Dashboard</button>` : ""} <button class="btn-secondary" onclick="logout()">Log Out</button></p>
+      ${cancellationNotice}
+      <p><button class="btn" onclick="${canManageSubscription ? "manageBilling()" : "routeTo('subscribe')"}">${canManageSubscription ? "Manage Billing" : "Subscribe"}</button> ${showCancelSubscription ? `<button class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>` : ""} ${isAdmin() ? `<button class="btn-secondary" onclick="routeTo('admin')">Admin Dashboard</button>` : ""} <button class="btn-secondary" onclick="logout()">Log Out</button></p>
     </main>
     ${footer()}
     ${modal()}
@@ -1280,6 +1300,33 @@ async function manageBilling() {
     showToast(data.error || "Billing portal is not configured yet.");
   } catch (error) {
     showToast("Billing portal is unavailable. Check Stripe portal setup.");
+  }
+}
+
+async function cancelSubscription() {
+  if (!isSubscriber() || !state.user?.stripeCustomerId) return;
+  const confirmed = window.confirm("Cancel future billing? Your paid access stays active until the end of the current billing period.");
+  if (!confirmed) return;
+  try {
+    const response = await fetch("/.netlify/functions/stripe-cancel-subscription", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ email: state.user.email }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      showToast(data.error || "Subscription could not be cancelled.");
+      return;
+    }
+    if (data.member) {
+      mergeMemberIntoCurrentUser(data.member);
+      upsertAccount(data.member);
+      saveState();
+      render();
+    }
+    showToast(data.alreadyCancelled ? "Subscription is already set to cancel." : "Subscription will not renew.");
+  } catch (error) {
+    showToast("Subscription cancellation is unavailable. Check Stripe setup.");
   }
 }
 

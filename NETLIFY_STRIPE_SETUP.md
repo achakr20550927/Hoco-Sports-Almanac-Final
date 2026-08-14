@@ -89,3 +89,5 @@ netlify/functions/members.js
 ```
 
 Stripe webhooks update those member records with `subscription=active` and the Stripe customer ID after successful Checkout.
+
+Paid members can cancel from the Account page. The site sets `cancel_at_period_end=true` in Stripe, so future billing stops while access remains active through the already-paid month or year. Stripe then sends subscription webhook events to keep the local member record in sync.

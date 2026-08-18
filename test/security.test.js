@@ -67,3 +67,9 @@ test("subscription line items accept Stripe price ids or dollar amounts", () => 
   assert.equal(annual.price_data.unit_amount, 2495);
   assert.equal(annual.price_data.recurring.interval, "year");
 });
+
+test("article validation preserves uploaded hero image data urls", () => {
+  const image = `data:image/jpeg;base64,${"a".repeat(10000)}`;
+  const article = normalizeArticle({ title: "Image Story", image });
+  assert.equal(article.image, image);
+});

@@ -630,7 +630,7 @@ function card(article, compact = false) {
   return `<article class="card">
     <a href="#" onclick="openArticle('${article.slug}')">
       <div class="card-image">
-        <img src="${article.image}" alt="${article.title}" />
+        <img src="${escapeHtml(article.image || articleImages[article.sport] || articleImages.football)}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${articleImages[article.sport] || articleImages.football}'" />
         ${(article.access || article.premium) && (article.access || "paid") !== "public" ? `<span class="badge premium">${accessLabel(article.access || "paid")}</span>` : ""}
       </div>
       <div class="card-body">
@@ -755,7 +755,7 @@ function articlePage(slug) {
     ${header()}
     <article class="article-shell">
       <section class="article-hero">
-        <img src="${article.image}" alt="${article.title}" />
+        <img src="${escapeHtml(article.image || articleImages[article.sport] || articleImages.football)}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${articleImages[article.sport] || articleImages.football}'" />
         <div class="article-hero-content">
           <span class="badge">${sportLabel(article.sport)}</span>
           <h1>${article.title}</h1>
@@ -1207,12 +1207,43 @@ function insertImageFromUrl() {
   insertImageHtml(src, caption || "");
 }
 
+function compressImageFile(file, maxWidth = 1200, quality = 0.78) {
+  return new Promise((resolve, reject) => {
+    if (!file?.type?.startsWith("image/")) {
+      reject(new Error("Choose an image file."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Image could not be read."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Image could not be loaded."));
+      image.onload = () => {
+        const scale = Math.min(1, maxWidth / image.width);
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function insertUploadedImage(event) {
   const file = event.target.files?.[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => insertImageHtml(reader.result, file.name);
-  reader.readAsDataURL(file);
+  compressImageFile(file, 1100, 0.76)
+    .then((src) => {
+      insertImageHtml(src, file.name);
+      showToast("Image uploaded.");
+    })
+    .catch((error) => showToast(error.message || "Image upload failed."));
   event.target.value = "";
 }
 
@@ -1224,15 +1255,15 @@ function uploadHeroImage(event) {
     event.target.value = "";
     return;
   }
-  const reader = new FileReader();
-  reader.onload = () => {
+  compressImageFile(file, 1200, 0.78)
+    .then((src) => {
     const input = document.getElementById("adminImage");
     const status = document.getElementById("heroImageStatus");
-    if (input) input.value = reader.result;
+      if (input) input.value = src;
     if (status) status.textContent = `Hero image uploaded: ${file.name}`;
     showToast("Hero image uploaded.");
-  };
-  reader.readAsDataURL(file);
+    })
+    .catch((error) => showToast(error.message || "Hero image upload failed."));
   event.target.value = "";
 }
 

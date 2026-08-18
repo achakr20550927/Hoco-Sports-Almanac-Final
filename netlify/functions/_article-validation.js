@@ -42,7 +42,7 @@ function cleanUrl(value) {
     const url = new URL(raw);
     if (!["https:", "http:", "data:"].includes(url.protocol)) return "";
     if (url.protocol === "data:" && !raw.startsWith("data:image/")) return "";
-    return raw.slice(0, 2500);
+    return raw.slice(0, url.protocol === "data:" ? 750000 : 2500);
   } catch {
     return "";
   }

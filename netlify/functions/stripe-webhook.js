@@ -11,6 +11,12 @@ function timestampToIso(timestamp) {
   return timestamp ? new Date(timestamp * 1000).toISOString() : undefined;
 }
 
+function normalizePlan(plan, subscription = "free") {
+  const value = String(plan || "").trim().toLowerCase();
+  if (["monthly", "annual"].includes(value)) return value;
+  return subscription === "active" ? "monthly" : "free";
+}
+
 exports.handler = async (event) => {
   connectLambda(event);
   const signature = event.headers["stripe-signature"];
@@ -64,6 +70,7 @@ async function handleStripeEvent(stripe, stripeEvent) {
     const nextMember = {
       name: existing?.name || normalized.split("@")[0],
       email: normalized,
+      plan: normalizePlan(patch.plan || existing?.plan, subscriptionStatus),
       subscription: subscriptionStatus,
       accountType: isAdmin ? "admin" : subscriptionStatus === "active" ? "paid" : "free",
       stripeCustomerId: patch.stripeCustomerId || existing?.stripeCustomerId,
@@ -83,6 +90,7 @@ async function handleStripeEvent(stripe, stripeEvent) {
     if (session.mode !== "subscription" || !session.customer) return;
     const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
     const patch = {
+      plan: session.metadata?.plan,
       subscription: "active",
       stripeCustomerId: session.customer,
       stripeSubscriptionId: subscriptionId,
@@ -90,6 +98,7 @@ async function handleStripeEvent(stripe, stripeEvent) {
     };
     if (subscriptionId) {
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      patch.plan = patch.plan || subscription.metadata?.plan;
       patch.cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
       patch.currentPeriodEnd = timestampToIso(subscription.current_period_end);
     }
@@ -101,6 +110,7 @@ async function handleStripeEvent(stripe, stripeEvent) {
     const customer = await stripe.customers.retrieve(subscription.customer);
     await upsert(customer.email || subscription.metadata?.email, {
       subscription: ["active", "trialing"].includes(subscription.status) ? "active" : subscription.status,
+      plan: subscription.metadata?.plan,
       stripeCustomerId: customer.id,
       stripeSubscriptionId: subscription.id,
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
@@ -113,6 +123,7 @@ async function handleStripeEvent(stripe, stripeEvent) {
     const customer = await stripe.customers.retrieve(subscription.customer);
     await upsert(customer.email || subscription.metadata?.email, {
       subscription: "cancelled",
+      plan: "free",
       stripeCustomerId: customer.id,
       stripeSubscriptionId: subscription.id,
       cancelAtPeriodEnd: false,
@@ -125,7 +136,31 @@ async function handleStripeEvent(stripe, stripeEvent) {
     const customer = await stripe.customers.retrieve(invoice.customer);
     await upsert(customer.email, {
       subscription: "past_due",
+      plan: "free",
       stripeCustomerId: customer.id,
+    });
+  }
+
+  if (stripeEvent.type === "invoice.payment_succeeded") {
+    const invoice = stripeEvent.data.object;
+    const customer = await stripe.customers.retrieve(invoice.customer);
+    let plan = invoice.subscription_details?.metadata?.plan;
+    let subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
+    let currentPeriodEnd;
+    let cancelAtPeriodEnd = false;
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      plan = plan || subscription.metadata?.plan;
+      currentPeriodEnd = timestampToIso(subscription.current_period_end);
+      cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
+    }
+    await upsert(customer.email, {
+      subscription: "active",
+      plan,
+      stripeCustomerId: customer.id,
+      stripeSubscriptionId: subscriptionId,
+      cancelAtPeriodEnd,
+      currentPeriodEnd,
     });
   }
 
@@ -135,6 +170,7 @@ async function handleStripeEvent(stripe, stripeEvent) {
     const customer = await stripe.customers.retrieve(charge.customer);
     await upsert(customer.email, {
       subscription: "review",
+      plan: "free",
       stripeCustomerId: customer.id,
     });
   }

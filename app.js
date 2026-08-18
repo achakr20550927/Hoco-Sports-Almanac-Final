@@ -453,6 +453,20 @@ function accountType(user = state.user) {
   return "anonymous";
 }
 
+function membershipPlan(user = state.user) {
+  const plan = String(user?.plan || "").toLowerCase();
+  if (["monthly", "annual"].includes(plan)) return plan;
+  return user?.subscription === "active" ? "monthly" : "free";
+}
+
+function membershipLabel(plan) {
+  return {
+    free: "Free",
+    monthly: "Monthly",
+    annual: "Annual",
+  }[plan || "free"] || "Free";
+}
+
 function upsertAccount(account) {
   const email = normalizeEmail(account.email);
   if (!email) return;
@@ -461,6 +475,7 @@ function upsertAccount(account) {
   const next = {
     name: account.name || existing?.name || email.split("@")[0],
     email,
+    plan: account.plan || existing?.plan || (account.subscription === "active" ? "monthly" : "free"),
     subscription: account.subscription || existing?.subscription || "free",
     accountType: account.accountType || existing?.accountType || (account.subscription === "active" ? "paid" : "free"),
     stripeCustomerId: account.stripeCustomerId || existing?.stripeCustomerId,
@@ -811,8 +826,8 @@ function accountPage() {
     <main class="main container">
       <div class="stats-grid">
         <div class="stat-card"><span class="eyebrow">Account Type</span><strong>${accountType()}</strong></div>
+        <div class="stat-card"><span class="eyebrow">Plan</span><strong>${membershipLabel(membershipPlan())}</strong></div>
         <div class="stat-card"><span class="eyebrow">Free Reads</span><strong>${readsRemaining()}</strong></div>
-        <div class="stat-card"><span class="eyebrow">Email List</span><strong>${state.user ? "Joined" : "Guest"}</strong></div>
       </div>
       ${cancellationNotice}
       <p><button class="btn" onclick="${canManageSubscription ? "manageBilling()" : "routeTo('subscribe')"}">${canManageSubscription ? "Manage Billing" : "Subscribe"}</button> ${showCancelSubscription ? `<button class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>` : ""} ${isAdmin() ? `<button class="btn-secondary" onclick="routeTo('admin')">Admin Dashboard</button>` : ""} <button class="btn-secondary" onclick="logout()">Log Out</button></p>
@@ -910,7 +925,10 @@ function adminPanel() {
     return `<div class="section-heading"><h2>Members and Emails</h2><div><button class="btn-secondary" onclick="loadAdminMembers()">Refresh Members</button> <button class="btn-secondary" onclick="exportAccountsCsv()">Export CSV</button></div></div>
       <div class="stats-grid"><div class="stat-card"><span class="eyebrow">Paid Members</span><strong>${paidMembers.length}</strong></div><div class="stat-card"><span class="eyebrow">Signed Up Emails</span><strong>${state.accounts.length}</strong></div><div class="stat-card"><span class="eyebrow">Admins</span><strong>${adminMembers.length}</strong></div></div>
       <p class="meta">${state.membersLoaded ? "Showing shared Netlify member records." : "Loading shared members. Local fallback may include only this browser's accounts."}</p>
-      <div class="table-wrap" style="margin-top:22px"><table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Account Type</th><th>Subscription</th><th>Signed Up</th></tr></thead><tbody>${state.accounts.map((account) => `<tr><td>${escapeHtml(account.name || "")}</td><td>${escapeHtml(account.email || "")}</td><td>${isAdmin(account) ? "admin" : escapeHtml(account.accountType || "free")}</td><td>${escapeHtml(account.subscription || "free")}</td><td>${account.signedUpAt ? new Date(account.signedUpAt).toLocaleDateString() : ""}</td></tr>`).join("") || `<tr><td colspan="5">No signups found yet.</td></tr>`}</tbody></table></div>`;
+      <div class="table-wrap" style="margin-top:22px"><table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Account Type</th><th>Plan</th><th>Subscription</th><th>Signed Up</th></tr></thead><tbody>${state.accounts.map((account) => {
+        const plan = membershipPlan(account);
+        return `<tr><td>${escapeHtml(account.name || "")}</td><td>${escapeHtml(account.email || "")}</td><td>${isAdmin(account) ? "admin" : escapeHtml(account.accountType || "free")}</td><td><select class="select table-select" onchange="updateMemberPlan('${escapeHtml(account.email || "")}', this.value)">${["free", "monthly", "annual"].map((option) => `<option value="${option}" ${plan === option ? "selected" : ""}>${membershipLabel(option)}</option>`).join("")}</select></td><td>${escapeHtml(account.subscription || "free")}</td><td>${account.signedUpAt ? new Date(account.signedUpAt).toLocaleDateString() : ""}</td></tr>`;
+      }).join("") || `<tr><td colspan="6">No signups found yet.</td></tr>`}</tbody></table></div>`;
   }
   if (state.adminTab === "settings") {
     return `<div class="section-heading"><h2>Site Settings</h2><button class="btn" onclick="showToast('Settings saved for prototype.')">Save</button></div>
@@ -1104,11 +1122,12 @@ function saveAdminEmails() {
 
 function exportAccountsCsv() {
   const rows = [
-    ["name", "email", "account_type", "subscription", "signed_up_at"],
+    ["name", "email", "account_type", "plan", "subscription", "signed_up_at"],
     ...state.accounts.map((account) => [
       account.name,
       account.email,
       isAdmin(account) ? "admin" : account.accountType,
+      membershipPlan(account),
       account.subscription,
       account.signedUpAt,
     ]),
@@ -1121,6 +1140,34 @@ function exportAccountsCsv() {
   link.download = "hoco-members.csv";
   link.click();
   URL.revokeObjectURL(url);
+}
+
+async function updateMemberPlan(email, plan) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return;
+  try {
+    const response = await fetch(`${functionBase}/members`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ email: normalizedEmail, plan }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not update membership.");
+    if (Array.isArray(data.members)) {
+      state.accounts = data.members;
+      state.membersLoaded = true;
+    }
+    if (data.member) {
+      upsertAccount(data.member);
+      if (normalizeEmail(state.user?.email) === normalizedEmail) mergeMemberIntoCurrentUser(data.member);
+    }
+    saveState();
+    render();
+    showToast(`${normalizedEmail} changed to ${membershipLabel(plan)}.`);
+  } catch (error) {
+    showToast(error.message || "Could not update membership.");
+    loadAdminMembers();
+  }
 }
 
 function joinNewsletter() {
@@ -1352,6 +1399,29 @@ async function subscribe(plan) {
   }
 }
 
+async function confirmCheckoutSession(sessionId) {
+  if (!state.user?.email || !sessionId) return false;
+  try {
+    const response = await fetch("/.netlify/functions/stripe-confirm-checkout-session", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ sessionId, email: state.user.email }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Payment could not be confirmed yet.");
+    if (data.member) {
+      mergeMemberIntoCurrentUser(data.member);
+      upsertAccount(data.member);
+      saveState();
+      render();
+      return true;
+    }
+  } catch (error) {
+    showToast(error.message || "Payment confirmation is pending.");
+  }
+  return false;
+}
+
 async function manageBilling() {
   if (!state.user?.email) {
     state.modal = "auth";
@@ -1411,12 +1481,16 @@ window.addEventListener("scroll", () => {
   document.querySelector(".hero-video")?.style.setProperty("--hero-offset", `${window.scrollY * 0.18}px`);
 });
 
-if (new URLSearchParams(location.search).get("checkout") === "success") {
+const checkoutParams = new URLSearchParams(location.search);
+if (checkoutParams.get("checkout") === "success") {
+  const sessionId = checkoutParams.get("session_id");
   if (state.user?.email) {
-    syncMember();
+    confirmCheckoutSession(sessionId).then((confirmed) => {
+      if (!confirmed) syncMember();
+    });
   }
   history.replaceState({}, "", location.pathname);
-  setTimeout(() => showToast("Payment received. Access updates after Stripe confirms your subscription."), 300);
+  setTimeout(() => showToast("Payment received. Your membership is being updated."), 300);
 }
 
 render();

@@ -7,13 +7,21 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function normalizePlan(plan, subscription = "free") {
+  const value = String(plan || "").trim().toLowerCase();
+  if (["monthly", "annual"].includes(value)) return value;
+  return subscription === "active" ? "monthly" : "free";
+}
+
 function publicMember(member) {
   if (!member) return null;
+  const subscription = member.subscription || "free";
   return {
     name: member.name,
     email: member.email,
-    subscription: member.subscription || "free",
-    accountType: member.accountType || (member.subscription === "active" ? "paid" : "free"),
+    plan: normalizePlan(member.plan, subscription),
+    subscription,
+    accountType: member.accountType || (subscription === "active" ? "paid" : "free"),
     stripeCustomerId: member.stripeCustomerId,
     stripeSubscriptionId: member.stripeSubscriptionId,
     cancelAtPeriodEnd: Boolean(member.cancelAtPeriodEnd),
@@ -42,7 +50,7 @@ exports.handler = async (event, context) => {
   }
 
   if (event.httpMethod !== "POST") {
-    return json(405, { error: "Method not allowed" });
+    if (event.httpMethod !== "PATCH") return json(405, { error: "Method not allowed" });
   }
 
   const limited = rateLimit(event, { key: "members:post", limit: 12, windowMs: 60_000 });
@@ -53,14 +61,43 @@ exports.handler = async (event, context) => {
   if (!email) return json(400, { error: "Email is required" });
 
   const existing = members.find((member) => member.email === email);
+  if (event.httpMethod === "PATCH") {
+    const admin = requireAdmin(event, context);
+    if (!admin.ok) return admin.response;
+
+    const plan = normalizePlan(body.plan);
+    const subscription = plan === "free" ? "free" : "active";
+    const isAdminAccount = existing?.accountType === "admin";
+    const nextMember = {
+      name: String(body.name || existing?.name || email.split("@")[0]).slice(0, 120),
+      email,
+      plan,
+      subscription,
+      accountType: isAdminAccount ? "admin" : subscription === "active" ? "paid" : "free",
+      stripeCustomerId: existing?.stripeCustomerId,
+      stripeSubscriptionId: existing?.stripeSubscriptionId,
+      cancelAtPeriodEnd: plan === "free" ? false : Boolean(existing?.cancelAtPeriodEnd),
+      currentPeriodEnd: plan === "free" ? undefined : existing?.currentPeriodEnd,
+      signedUpAt: existing?.signedUpAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      manualPlanUpdatedAt: new Date().toISOString(),
+      manualPlanUpdatedBy: admin.email,
+    };
+    const next = [nextMember, ...members.filter((member) => member.email !== email)];
+    await store.setJSON("accounts", next);
+    return json(200, { member: publicMember(nextMember), members: next.map(publicMember) });
+  }
+
   if (body.mode === "signup" && existing) {
     return json(409, { error: "An account already exists for this email. Please log in instead." });
   }
 
+  const subscription = existing?.subscription || "free";
   const nextMember = {
     name: String(body.name || existing?.name || email.split("@")[0]).slice(0, 120),
     email,
-    subscription: existing?.subscription || "free",
+    plan: normalizePlan(existing?.plan, subscription),
+    subscription,
     accountType: existing?.accountType || "free",
     stripeCustomerId: existing?.stripeCustomerId,
     stripeSubscriptionId: existing?.stripeSubscriptionId,

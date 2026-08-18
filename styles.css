@@ -967,6 +967,11 @@ button {
   background: var(--color-light-bg);
 }
 
+.table-select {
+  min-width: 120px;
+  padding: 8px 10px;
+}
+
 .credits-box {
   margin: 34px 0;
   border-top: 1px solid var(--color-med-gray);

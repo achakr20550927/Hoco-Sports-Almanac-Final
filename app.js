@@ -506,8 +506,40 @@ function routeTo(route) {
   }
   state.route = route;
   state.modal = null;
-  window.scrollTo({ top: 0, behavior: "smooth" });
   render();
+  safeScrollTop();
+}
+
+function safeScrollTop() {
+  try {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (error) {
+    window.scrollTo(0, 0);
+  }
+}
+
+function nav(event, route) {
+  event?.preventDefault?.();
+  routeTo(route);
+  return false;
+}
+
+function navSport(event, sport) {
+  event?.preventDefault?.();
+  setSport(sport);
+  return false;
+}
+
+function navSearch(event) {
+  event?.preventDefault?.();
+  openSearch();
+  return false;
+}
+
+function navAccount(event) {
+  event?.preventDefault?.();
+  openAccountAction();
+  return false;
 }
 
 function showToast(message) {
@@ -570,19 +602,19 @@ function header() {
     <div class="breaking"><strong>BREAKING:</strong><span>Howard County spring championship archive is now open for subscriber preview.</span></div>
     <header class="masthead" id="masthead">
       <div class="masthead-inner">
-        <button class="brand link-button" onclick="routeTo('home')" aria-label="Home">
+        <button type="button" class="brand link-button" onclick="routeTo('home')" aria-label="Home">
           <span class="shield">HC</span>
           <span><span class="brand-title">${SITE_NAME}</span><span class="brand-tagline">The Game. The Story. The Record.</span></span>
         </button>
         <nav class="primary-nav" aria-label="Primary">
-          <a href="#" onclick="routeTo('home')">Home</a>
-          ${sports.slice(0, 6).map((sport) => `<a href="#" onclick="setSport('${sport}')">${sport}</a>`).join("")}
-          ${isAdmin() ? `<a href="#" onclick="routeTo('admin')">Admin</a>` : ""}
+          <a href="#" onclick="return nav(event, 'home')">Home</a>
+          ${sports.slice(0, 6).map((sport) => `<a href="#" onclick="return navSport(event, '${sport}')">${sport}</a>`).join("")}
+          ${isAdmin() ? `<a href="#" onclick="return nav(event, 'admin')">Admin</a>` : ""}
         </nav>
         <div class="secondary-actions">
-          <button class="icon-button" onclick="openSearch()" title="Search">⌕</button>
-          <button class="btn-secondary" onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Login"}</button>
-          <button class="btn" onclick="routeTo('subscribe')">${isSubscriber() ? "Subscribed" : "Subscribe"}</button>
+          <button type="button" class="icon-button" onclick="openSearch()" title="Search">⌕</button>
+          <button type="button" class="btn-secondary" onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Login"}</button>
+          <button type="button" class="btn" onclick="routeTo('subscribe')">${isSubscriber() ? "Subscribed" : "Subscribe"}</button>
         </div>
       </div>
     </header>
@@ -603,19 +635,19 @@ function footer() {
             <h3>${SITE_NAME}</h3>
             <p>The independent Howard County sports almanac: broadsheet discipline, modern reader experience.</p>
           </div>
-          <div><h4>Navigate</h4><a href="#" onclick="routeTo('home')">Home</a><a href="#" onclick="routeTo('archive')">Archive</a><a href="#" onclick="openSearch()">Search</a></div>
-          <div><h4>Account</h4><a href="#" onclick="openAccountAction()">${state.user ? "My Account" : "Login"}</a><a href="#" onclick="routeTo('subscribe')">Subscribe</a></div>
-          <div><h4>Legal</h4><a href="#" onclick="routeTo('about')">About</a><a href="#" onclick="routeTo('contact')">Contact</a><a href="#">Privacy</a><a href="#">Terms</a></div>
+          <div><h4>Navigate</h4><a href="#" onclick="return nav(event, 'home')">Home</a><a href="#" onclick="return nav(event, 'archive')">Archive</a><a href="#" onclick="return navSearch(event)">Search</a></div>
+          <div><h4>Account</h4><a href="#" onclick="return navAccount(event)">${state.user ? "My Account" : "Login"}</a><a href="#" onclick="return nav(event, 'subscribe')">Subscribe</a></div>
+          <div><h4>Legal</h4><a href="#" onclick="return nav(event, 'about')">About</a><a href="#" onclick="return nav(event, 'contact')">Contact</a><a href="#">Privacy</a><a href="#">Terms</a></div>
         </div>
         <p class="meta">© 2026 ${SITE_NAME}. Independent publication prototype.</p>
       </div>
     </footer>
     <nav class="mobile-bottom" aria-label="Mobile">
-      <button onclick="routeTo('home')">Home</button>
-      <button onclick="setSport('football')">Sports</button>
-      <button onclick="openSearch()">Search</button>
-      <button onclick="routeTo('archive')">Archive</button>
-      <button onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Account"}</button>
+      <button type="button" onclick="routeTo('home')">Home</button>
+      <button type="button" onclick="setSport('football')">Sports</button>
+      <button type="button" onclick="openSearch()">Search</button>
+      <button type="button" onclick="routeTo('archive')">Archive</button>
+      <button type="button" onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Account"}</button>
     </nav>
   `;
 }
@@ -623,12 +655,12 @@ function footer() {
 function card(article, compact = false) {
   if (compact) {
     return `<article class="compact-card">
-      <a href="#" onclick="openArticle('${article.slug}')"><h3>${article.title}</h3></a>
+      <a href="#" onclick="return navArticle(event, '${article.slug}')"><h3>${article.title}</h3></a>
       <div class="meta">${sportLabel(article.sport)} · ${article.date} · ${article.readTime} min</div>
     </article>`;
   }
   return `<article class="card">
-    <a href="#" onclick="openArticle('${article.slug}')">
+    <a href="#" onclick="return navArticle(event, '${article.slug}')">
       <div class="card-image">
         <img src="${escapeHtml(article.image || articleImages[article.sport] || articleImages.football)}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${articleImages[article.sport] || articleImages.football}'" />
         ${(article.access || article.premium) && (article.access || "paid") !== "public" ? `<span class="badge premium">${accessLabel(article.access || "paid")}</span>` : ""}
@@ -845,9 +877,9 @@ function adminPage() {
     ${header()}
     <main class="admin-layout">
       <aside class="admin-sidebar">
-        <button class="brand link-button" onclick="routeTo('home')"><span class="shield">HC</span><span><span class="brand-title" style="font-size:24px">Admin</span></span></button>
+        <button type="button" class="brand link-button" onclick="routeTo('home')"><span class="shield">HC</span><span><span class="brand-title" style="font-size:24px">Admin</span></span></button>
         <nav class="admin-nav">
-          ${["publish", "dashboard", "articles", "subscribers", "settings"].map((tab) => `<button class="${state.adminTab === tab ? "active" : ""}" onclick="state.adminTab='${tab}'; render()">${tab[0].toUpperCase() + tab.slice(1)}</button>`).join("")}
+          ${["publish", "dashboard", "articles", "subscribers", "settings"].map((tab) => `<button type="button" class="${state.adminTab === tab ? "active" : ""}" onclick="state.adminTab='${tab}'; render()">${tab[0].toUpperCase() + tab.slice(1)}</button>`).join("")}
         </nav>
       </aside>
       <section class="admin-main">${adminPanel()}</section>
@@ -1302,8 +1334,14 @@ function openArticle(slug) {
   const article = articles.find((item) => item.slug === slug);
   if (article) recordArticleView(article.id);
   state.route = `article:${slug}`;
-  window.scrollTo({ top: 0, behavior: "smooth" });
   render();
+  safeScrollTop();
+}
+
+function navArticle(event, slug) {
+  event?.preventDefault?.();
+  openArticle(slug);
+  return false;
 }
 
 function setSport(sport) {
@@ -1507,7 +1545,7 @@ async function cancelSubscription() {
 window.addEventListener("scroll", () => {
   const max = document.documentElement.scrollHeight - window.innerHeight;
   const pct = max > 0 ? (window.scrollY / max) * 100 : 0;
-  document.getElementById("readingProgress").style.width = `${pct}%`;
+  document.getElementById("readingProgress")?.style.setProperty("width", `${pct}%`);
   document.body.classList.toggle("scrolled", window.scrollY > 80);
   document.querySelector(".hero-video")?.style.setProperty("--hero-offset", `${window.scrollY * 0.18}px`);
 });

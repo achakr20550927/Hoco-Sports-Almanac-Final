@@ -496,7 +496,22 @@ function accessLabel(access) {
   }[access || "public"];
 }
 
-function routeTo(route) {
+function routeHash(route) {
+  if (route?.startsWith("article:")) return `#article-${encodeURIComponent(route.split(":")[1])}`;
+  return `#${encodeURIComponent(route || "home")}`;
+}
+
+function sportHash(sport) {
+  return `#sport-${encodeURIComponent(sport)}`;
+}
+
+function updateLocationHash(hash) {
+  if (location.hash !== hash) {
+    history.pushState({}, "", hash);
+  }
+}
+
+function routeTo(route, options = {}) {
   if (route === "admin" && !isAdmin()) {
     state.modal = "auth";
     state.authTab = "login";
@@ -508,6 +523,7 @@ function routeTo(route) {
   state.modal = null;
   render();
   safeScrollTop();
+  if (options.updateHash !== false) updateLocationHash(routeHash(route));
 }
 
 function safeScrollTop() {
@@ -540,6 +556,20 @@ function navAccount(event) {
   event?.preventDefault?.();
   openAccountAction();
   return false;
+}
+
+function applyHashRoute() {
+  const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
+  if (!hash) return;
+  if (hash.startsWith("article-")) {
+    openArticle(hash.slice("article-".length), { updateHash: false });
+    return;
+  }
+  if (hash.startsWith("sport-")) {
+    setSport(hash.slice("sport-".length), { updateHash: false });
+    return;
+  }
+  routeTo(hash, { updateHash: false });
 }
 
 function showToast(message) {
@@ -602,19 +632,19 @@ function header() {
     <div class="breaking"><strong>BREAKING:</strong><span>Howard County spring championship archive is now open for subscriber preview.</span></div>
     <header class="masthead" id="masthead">
       <div class="masthead-inner">
-        <button type="button" class="brand link-button" onclick="routeTo('home')" aria-label="Home">
+        <a href="#home" class="brand link-button" data-route="home" aria-label="Home">
           <span class="shield">HC</span>
           <span><span class="brand-title">${SITE_NAME}</span><span class="brand-tagline">The Game. The Story. The Record.</span></span>
-        </button>
+        </a>
         <nav class="primary-nav" aria-label="Primary">
-          <a href="#" onclick="return nav(event, 'home')">Home</a>
-          ${sports.slice(0, 6).map((sport) => `<a href="#" onclick="return navSport(event, '${sport}')">${sport}</a>`).join("")}
-          ${isAdmin() ? `<a href="#" onclick="return nav(event, 'admin')">Admin</a>` : ""}
+          <a href="#home" data-route="home">Home</a>
+          ${sports.slice(0, 6).map((sport) => `<a href="${sportHash(sport)}" data-sport="${escapeHtml(sport)}">${sport}</a>`).join("")}
+          ${isAdmin() ? `<a href="#admin" data-route="admin">Admin</a>` : ""}
         </nav>
         <div class="secondary-actions">
-          <button type="button" class="icon-button" onclick="openSearch()" title="Search">⌕</button>
-          <button type="button" class="btn-secondary" onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Login"}</button>
-          <button type="button" class="btn" onclick="routeTo('subscribe')">${isSubscriber() ? "Subscribed" : "Subscribe"}</button>
+          <button type="button" class="icon-button" data-action="search" title="Search">⌕</button>
+          <button type="button" class="btn-secondary" data-action="account">${state.user ? escapeHtml(displayName()) : "Login"}</button>
+          <button type="button" class="btn" data-route="subscribe">${isSubscriber() ? "Subscribed" : "Subscribe"}</button>
         </div>
       </div>
     </header>
@@ -635,19 +665,19 @@ function footer() {
             <h3>${SITE_NAME}</h3>
             <p>The independent Howard County sports almanac: broadsheet discipline, modern reader experience.</p>
           </div>
-          <div><h4>Navigate</h4><a href="#" onclick="return nav(event, 'home')">Home</a><a href="#" onclick="return nav(event, 'archive')">Archive</a><a href="#" onclick="return navSearch(event)">Search</a></div>
-          <div><h4>Account</h4><a href="#" onclick="return navAccount(event)">${state.user ? "My Account" : "Login"}</a><a href="#" onclick="return nav(event, 'subscribe')">Subscribe</a></div>
-          <div><h4>Legal</h4><a href="#" onclick="return nav(event, 'about')">About</a><a href="#" onclick="return nav(event, 'contact')">Contact</a><a href="#">Privacy</a><a href="#">Terms</a></div>
+          <div><h4>Navigate</h4><a href="#home" data-route="home">Home</a><a href="#archive" data-route="archive">Archive</a><a href="#archive" data-action="search">Search</a></div>
+          <div><h4>Account</h4><a href="#account" data-action="account">${state.user ? "My Account" : "Login"}</a><a href="#subscribe" data-route="subscribe">Subscribe</a></div>
+          <div><h4>Legal</h4><a href="#about" data-route="about">About</a><a href="#contact" data-route="contact">Contact</a><a href="#">Privacy</a><a href="#">Terms</a></div>
         </div>
         <p class="meta">© 2026 ${SITE_NAME}. Independent publication prototype.</p>
       </div>
     </footer>
     <nav class="mobile-bottom" aria-label="Mobile">
-      <button type="button" onclick="routeTo('home')">Home</button>
-      <button type="button" onclick="setSport('football')">Sports</button>
-      <button type="button" onclick="openSearch()">Search</button>
-      <button type="button" onclick="routeTo('archive')">Archive</button>
-      <button type="button" onclick="openAccountAction()">${state.user ? escapeHtml(displayName()) : "Account"}</button>
+      <button type="button" data-route="home">Home</button>
+      <button type="button" data-sport="football">Sports</button>
+      <button type="button" data-action="search">Search</button>
+      <button type="button" data-route="archive">Archive</button>
+      <button type="button" data-action="account">${state.user ? escapeHtml(displayName()) : "Account"}</button>
     </nav>
   `;
 }
@@ -655,12 +685,12 @@ function footer() {
 function card(article, compact = false) {
   if (compact) {
     return `<article class="compact-card">
-      <a href="#" onclick="return navArticle(event, '${article.slug}')"><h3>${article.title}</h3></a>
+      <a href="${routeHash(`article:${article.slug}`)}" data-article="${escapeHtml(article.slug)}"><h3>${article.title}</h3></a>
       <div class="meta">${sportLabel(article.sport)} · ${article.date} · ${article.readTime} min</div>
     </article>`;
   }
   return `<article class="card">
-    <a href="#" onclick="return navArticle(event, '${article.slug}')">
+    <a href="${routeHash(`article:${article.slug}`)}" data-article="${escapeHtml(article.slug)}">
       <div class="card-image">
         <img src="${escapeHtml(article.image || articleImages[article.sport] || articleImages.football)}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${articleImages[article.sport] || articleImages.football}'" />
         ${(article.access || article.premium) && (article.access || "paid") !== "public" ? `<span class="badge premium">${accessLabel(article.access || "paid")}</span>` : ""}
@@ -703,11 +733,11 @@ function homePage() {
         <h1>${featured.title}</h1>
         <p>${featured.subtitle}</p>
         <div class="hero-meta">${sportLabel(featured.sport)} · ${featured.date} · ${featured.readTime} min read · ${readMeterLabel()}</div>
-        <button class="btn" onclick="openArticle('${featured.slug}')">Read the Story</button>
+        <button type="button" class="btn" data-article="${escapeHtml(featured.slug)}">Read the Story</button>
       </div>
     </section>
     <main class="main container">
-      <div class="section-heading"><h2>Editor's Picks</h2><button class="btn-ghost" onclick="routeTo('archive')">View Archive</button></div>
+      <div class="section-heading"><h2>Editor's Picks</h2><button type="button" class="btn-ghost" data-route="archive">View Archive</button></div>
       <div class="picks-grid">${picks.map((article) => card(article)).join("")}</div>
       <div class="content-layout">
         <section>
@@ -729,7 +759,7 @@ function sidebar() {
       <span class="eyebrow">Metered Access</span>
       <h3>${hasUnlimitedReads() ? "Unlimited articles" : `${readsRemaining()} free articles left this month`}</h3>
       <p>Subscribe for unlimited access to every feature, archive story, and premium report.</p>
-      <button class="btn" onclick="routeTo('subscribe')">Subscribe</button>
+      <button type="button" class="btn" data-route="subscribe">Subscribe</button>
     </section>
     <section class="sidebar-box">
       <h3>Top Stories This Week</h3>
@@ -749,7 +779,7 @@ function sportSections() {
     ${["football", "basketball", "baseball"].map((sport) => {
       const group = articles.filter((article) => article.sport === sport).slice(0, 4);
       return `<div style="margin-bottom:36px">
-        <div class="section-heading"><h2>${sportLabel(sport)}</h2><button class="btn-ghost" onclick="setSport('${sport}')">See All ${sportLabel(sport)} Stories</button></div>
+        <div class="section-heading"><h2>${sportLabel(sport)}</h2><button type="button" class="btn-ghost" data-sport="${escapeHtml(sport)}">See All ${sportLabel(sport)} Stories</button></div>
         <div class="sport-grid">${group.map((article) => card(article)).join("")}</div>
       </div>`;
     }).join("")}
@@ -824,7 +854,7 @@ function paywall() {
     <span class="eyebrow">You've reached your free limit</span>
     <h2>Subscribe to Keep Reading</h2>
     <p>Log in or subscribe to unlock this story based on its account access level.</p>
-    <button class="btn" onclick="routeTo('subscribe')" style="width:100%;margin-bottom:10px">Subscribe Now</button>
+    <button type="button" class="btn" data-route="subscribe" style="width:100%;margin-bottom:10px">Subscribe Now</button>
     <button class="btn-secondary" onclick="state.modal='auth'; state.authTab='login'; render()" style="width:100%">Log In</button>
     <p class="meta">5 free articles per month. No credit card required to create a free account.</p>
   </section>`;
@@ -862,7 +892,7 @@ function accountPage() {
         <div class="stat-card"><span class="eyebrow">Free Reads</span><strong>${readsRemaining()}</strong></div>
       </div>
       ${cancellationNotice}
-      <p><button class="btn" onclick="${canManageSubscription ? "manageBilling()" : "routeTo('subscribe')"}">${canManageSubscription ? "Manage Billing" : "Subscribe"}</button> ${showCancelSubscription ? `<button class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>` : ""} ${isAdmin() ? `<button class="btn-secondary" onclick="routeTo('admin')">Admin Dashboard</button>` : ""} <button class="btn-secondary" onclick="logout()">Log Out</button></p>
+      <p><button type="button" class="btn" ${canManageSubscription ? `onclick="manageBilling()"` : `data-route="subscribe"`}>${canManageSubscription ? "Manage Billing" : "Subscribe"}</button> ${showCancelSubscription ? `<button type="button" class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>` : ""} ${isAdmin() ? `<button type="button" class="btn-secondary" data-route="admin">Admin Dashboard</button>` : ""} <button type="button" class="btn-secondary" onclick="logout()">Log Out</button></p>
     </main>
     ${footer()}
     ${modal()}
@@ -877,7 +907,7 @@ function adminPage() {
     ${header()}
     <main class="admin-layout">
       <aside class="admin-sidebar">
-        <button type="button" class="brand link-button" onclick="routeTo('home')"><span class="shield">HC</span><span><span class="brand-title" style="font-size:24px">Admin</span></span></button>
+        <a href="#home" class="brand link-button" data-route="home"><span class="shield">HC</span><span><span class="brand-title" style="font-size:24px">Admin</span></span></a>
         <nav class="admin-nav">
           ${["publish", "dashboard", "articles", "subscribers", "settings"].map((tab) => `<button type="button" class="${state.adminTab === tab ? "active" : ""}" onclick="state.adminTab='${tab}'; render()">${tab[0].toUpperCase() + tab.slice(1)}</button>`).join("")}
         </nav>
@@ -1330,12 +1360,13 @@ function render() {
   else app.innerHTML = homePage();
 }
 
-function openArticle(slug) {
+function openArticle(slug, options = {}) {
   const article = articles.find((item) => item.slug === slug);
   if (article) recordArticleView(article.id);
   state.route = `article:${slug}`;
   render();
   safeScrollTop();
+  if (options.updateHash !== false) updateLocationHash(routeHash(state.route));
 }
 
 function navArticle(event, slug) {
@@ -1344,11 +1375,13 @@ function navArticle(event, slug) {
   return false;
 }
 
-function setSport(sport) {
+function setSport(sport, options = {}) {
   state.route = "archive";
   state.sport = sport;
   state.year = "All";
   render();
+  safeScrollTop();
+  if (options.updateHash !== false) updateLocationHash(sportHash(sport));
 }
 
 function clearFilters() {
@@ -1362,6 +1395,7 @@ function openSearch() {
   state.route = "archive";
   setTimeout(() => document.querySelector(".filter-panel .input")?.focus(), 0);
   render();
+  updateLocationHash(routeHash("archive"));
 }
 
 async function login(mode) {
@@ -1550,6 +1584,26 @@ window.addEventListener("scroll", () => {
   document.querySelector(".hero-video")?.style.setProperty("--hero-offset", `${window.scrollY * 0.18}px`);
 });
 
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-route], [data-sport], [data-article], [data-action]");
+  if (!target) return;
+  const action = target.dataset.action;
+  event.preventDefault();
+  if (target.dataset.route) {
+    routeTo(target.dataset.route);
+  } else if (target.dataset.sport) {
+    setSport(target.dataset.sport);
+  } else if (target.dataset.article) {
+    openArticle(target.dataset.article);
+  } else if (action === "search") {
+    openSearch();
+  } else if (action === "account") {
+    openAccountAction();
+  }
+});
+
+window.addEventListener("hashchange", applyHashRoute);
+
 const checkoutParams = new URLSearchParams(location.search);
 if (checkoutParams.get("checkout") === "success") {
   const sessionId = checkoutParams.get("session_id");
@@ -1562,6 +1616,7 @@ if (checkoutParams.get("checkout") === "success") {
   setTimeout(() => showToast("Payment received. Your membership is being updated."), 300);
 }
 
+applyHashRoute();
 render();
 loadRemoteArticles();
 syncMember();

@@ -8,6 +8,7 @@ const state = {
   adminTab: "publish",
   editingArticleId: null,
   pendingSubscriptionPlan: null,
+  heroIndex: 0,
   adminVerified: JSON.parse(localStorage.getItem("hoco_admin_verified") || "false"),
   user: JSON.parse(localStorage.getItem("sp_user") || "null"),
   accounts: JSON.parse(localStorage.getItem("hoco_accounts") || "[]"),
@@ -85,6 +86,7 @@ const articleImages = {
   gymnastics:
     "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=1400&q=80",
 };
+const defaultHeroImage = articleImages.football;
 
 const seedArticles = [
   {
@@ -296,6 +298,7 @@ async function loadRemoteArticles() {
       ...remoteArticles,
       ...seedArticles.filter((seed) => !remoteArticles.some((article) => article.id === seed.id)),
     ];
+    state.heroIndex = 0;
     if (remoteArticles.length) localStorage.removeItem("hoco_published_articles");
     render();
   } catch (error) {
@@ -738,14 +741,27 @@ function filteredArticles() {
   });
 }
 
-function homePage() {
+function usableArticleImage(article) {
+  const image = String(article?.image || "").trim();
+  return image || articleImages[article?.sport] || defaultHeroImage;
+}
+
+function heroArticles() {
   const featured = articles.find((article) => article.featured);
+  const ordered = featured ? [featured, ...articles.filter((article) => article.slug !== featured.slug)] : articles;
+  return ordered.slice(0, Math.min(6, ordered.length));
+}
+
+function homePage() {
+  const heroes = heroArticles();
+  const featured = heroes[state.heroIndex % Math.max(heroes.length, 1)] || articles[0];
+  const heroImage = usableArticleImage(featured);
   const picks = articles.slice(1, 4);
   const latest = articles.slice(0, 6);
   return `
     ${header()}
     <section class="hero">
-      <img class="hero-video" src="${featured.image}" alt="Howard County sports feature" />
+      <img class="hero-video" src="${escapeHtml(heroImage)}" alt="${escapeHtml(featured.title || "Howard County sports feature")}" onerror="this.onerror=null;this.src='${defaultHeroImage}'" />
       <div class="hero-content">
         <span class="kicker">Howard County Sports</span>
         <h1>${featured.title}</h1>
@@ -1628,6 +1644,14 @@ document.addEventListener("click", (event) => {
 });
 
 window.addEventListener("hashchange", applyHashRoute);
+
+setInterval(() => {
+  if (state.route !== "home" || state.modal) return;
+  const heroes = heroArticles();
+  if (heroes.length < 2) return;
+  state.heroIndex = (state.heroIndex + 1) % heroes.length;
+  render();
+}, 10000);
 
 const checkoutParams = new URLSearchParams(location.search);
 if (checkoutParams.get("checkout") === "success") {

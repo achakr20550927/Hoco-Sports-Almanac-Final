@@ -6,6 +6,7 @@ const { adminEmails } = require("../netlify/functions/_config");
 const { redact } = require("../netlify/functions/_security");
 const { subscriptionLineItem } = require("../netlify/functions/_stripe-line-item");
 const { cleanId } = require("../netlify/functions/article-view");
+const { summaryArticle } = require("../netlify/functions/articles");
 
 test("article sanitizer removes scripts and event handlers", () => {
   const article = normalizeArticle({
@@ -72,4 +73,20 @@ test("article validation preserves uploaded hero image data urls", () => {
   const image = `data:image/jpeg;base64,${"a".repeat(10000)}`;
   const article = normalizeArticle({ title: "Image Story", image });
   assert.equal(article.image, image);
+});
+
+test("article summaries omit full body and oversized data images", () => {
+  const image = `data:image/jpeg;base64,${"a".repeat(190000)}`;
+  const summary = summaryArticle({
+    id: "story-1",
+    title: "Large Story",
+    slug: "large-story",
+    image,
+    bodyHtml: `<p>${"Story ".repeat(1000)}</p>`,
+  });
+
+  assert.equal(summary.bodyHtml, undefined);
+  assert.equal(summary.image, "");
+  assert.equal(summary.hasFullImage, true);
+  assert.equal(summary.hasFullBody, true);
 });

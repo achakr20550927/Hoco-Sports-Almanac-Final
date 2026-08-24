@@ -12,6 +12,7 @@ const state = {
   user: JSON.parse(localStorage.getItem("sp_user") || "null"),
   accounts: JSON.parse(localStorage.getItem("hoco_accounts") || "[]"),
   adminEmails: JSON.parse(localStorage.getItem("hoco_admin_emails") || '["admin@hocosportsalmanac.com"]'),
+  loadingArticleSlugs: new Set(),
   reads: JSON.parse(localStorage.getItem("sp_reads") || "null") || {
     count: 0,
     month: new Date().toISOString().slice(0, 7),
@@ -302,6 +303,23 @@ async function loadRemoteArticles() {
   }
 }
 
+async function loadFullArticle(slug) {
+  if (!slug || state.loadingArticleSlugs.has(slug)) return;
+  state.loadingArticleSlugs.add(slug);
+  try {
+    const response = await fetch(`${functionBase}/articles?slug=${encodeURIComponent(slug)}&t=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!data.article) return;
+    articles = articles.map((article) => (article.slug === slug ? { ...article, ...data.article } : article));
+    if (state.route === `article:${slug}`) render();
+  } catch (error) {
+    showToast("Story could not be loaded. Please refresh and try again.");
+  } finally {
+    state.loadingArticleSlugs.delete(slug);
+  }
+}
+
 async function syncMember() {
   if (!state.user?.email) return;
   try {
@@ -580,7 +598,7 @@ function showToast(message) {
 }
 
 function isSubscriber() {
-  return state.user?.subscription === "active";
+  return state.user?.subscription === "active" || ["monthly", "annual"].includes(String(state.user?.plan || "").toLowerCase());
 }
 
 function isCancellationScheduled() {
@@ -810,9 +828,13 @@ function archivePage() {
 
 function articlePage(slug) {
   const article = articles.find((item) => item.slug === slug) || articles[0];
+  if (article.custom && !article.bodyHtml) {
+    loadFullArticle(article.slug);
+  }
   const unlocked = canRead(article);
-  markRead(article, unlocked);
-  const bodyHtml = articleBodyHtml(article, unlocked);
+  const hasBody = Boolean(article.bodyHtml);
+  if (hasBody) markRead(article, unlocked);
+  const bodyHtml = hasBody ? articleBodyHtml(article, unlocked) : "<p>Loading story...</p>";
   return `
     ${header()}
     <article class="article-shell">
@@ -1048,6 +1070,8 @@ function saveDraft() {
 async function publishArticle() {
   const article = getDraftFromForm();
   const wasEditing = Boolean(state.editingArticleId);
+  let publishedToWebsite = false;
+  let publishMessage = "Article published to the website.";
   if (article.featured) {
     articles = articles.map((item) => ({ ...item, featured: false }));
   }
@@ -1074,14 +1098,15 @@ async function publishArticle() {
       ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
     ];
     localStorage.removeItem("hoco_published_articles");
+    publishedToWebsite = true;
   } catch (error) {
     savePublishedArticles();
-    showToast(error.message || "Backend unavailable; saved in this browser only.");
+    publishMessage = error.message || "Backend unavailable; saved in this browser only.";
   }
   localStorage.removeItem("hoco_admin_draft");
   state.adminTab = "articles";
   render();
-  showToast("Article published.");
+  showToast(publishedToWebsite ? publishMessage : `${publishMessage} It is not public until synced.`);
 }
 
 async function syncLocalArticles() {

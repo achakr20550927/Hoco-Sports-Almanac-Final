@@ -4,6 +4,21 @@ const { normalizeArticle } = require("./_article-validation");
 const { rateLimit } = require("./_rate-limit");
 const { json, logSafe, safeError } = require("./_security");
 
+function withViews(article, views = {}) {
+  return { ...article, views: Number(views[article.id] || 0) };
+}
+
+function summaryArticle(article, views = {}) {
+  const next = withViews(article, views);
+  const { bodyHtml, ...summary } = next;
+  if (String(summary.image || "").startsWith("data:") && summary.image.length > 180_000) {
+    summary.image = "";
+    summary.hasFullImage = true;
+  }
+  summary.hasFullBody = Boolean(bodyHtml);
+  return summary;
+}
+
 exports.handler = async (event, context) => {
   connectLambda(event);
   const store = getStore("articles");
@@ -12,10 +27,14 @@ exports.handler = async (event, context) => {
   if (event.httpMethod === "GET") {
     const raw = await store.get("published", { type: "json" });
     const views = (await viewStore.get("counts", { type: "json" })) || {};
-    const articles = (raw || [])
-      .filter((article) => (article.status || "published") === "published")
-      .map((article) => ({ ...article, views: Number(views[article.id] || 0) }));
-    return json(200, { articles }, { "cache-control": "no-store" });
+    const published = (raw || []).filter((article) => (article.status || "published") === "published");
+    const slug = event.queryStringParameters?.slug;
+    const id = event.queryStringParameters?.id;
+    if (slug || id) {
+      const article = published.find((item) => item.slug === slug || item.id === id);
+      return json(200, { article: article ? withViews(article, views) : null }, { "cache-control": "no-store" });
+    }
+    return json(200, { articles: published.map((article) => summaryArticle(article, views)) }, { "cache-control": "no-store" });
   }
 
   const limited = rateLimit(event, { key: "articles:mutate", limit: 30, windowMs: 60_000 });
@@ -44,7 +63,7 @@ exports.handler = async (event, context) => {
       const next = [nextArticle, ...existing];
       await store.setJSON("published", next);
       logSafe("article.saved", { articleId: nextArticle.id, admin: admin.email, status: nextArticle.status });
-      return json(200, { article: nextArticle, articles: next });
+      return json(200, { article: withViews(nextArticle), articles: next.map((item) => summaryArticle(item)) });
     } catch (error) {
       return json(error.statusCode || 400, safeError(error.message || "Article could not be saved."));
     }
@@ -56,8 +75,10 @@ exports.handler = async (event, context) => {
     const articles = (raw || []).filter((item) => item.id !== id);
     await store.setJSON("published", articles);
     logSafe("article.deleted", { articleId: id, admin: admin.email });
-    return json(200, { articles });
+    return json(200, { articles: articles.map((item) => summaryArticle(item)) });
   }
 
   return json(405, { error: "Method not allowed" });
 };
+
+module.exports = { handler: exports.handler, summaryArticle, withViews };

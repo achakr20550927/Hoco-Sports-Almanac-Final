@@ -1445,24 +1445,19 @@ async function login(mode) {
   const firstNameInput = document.getElementById("firstName")?.value.trim();
   const existing = state.accounts.find((account) => normalizeEmail(account.email) === normalizedEmail);
   if (mode === "signup" && existing) {
-    showToast("An account already exists for this email. Please log in instead.");
-    state.modal = "auth";
-    state.authTab = "login";
-    render();
-    setTimeout(() => {
-      const emailInput = document.getElementById("email");
-      if (emailInput) {
-        emailInput.value = normalizedEmail;
-        emailInput.focus();
-      }
-    }, 0);
-    return;
+    mode = "login";
   }
   const firstName = firstNameInput || existing?.name || normalizedEmail.split("@")[0];
   state.user = {
     name: firstName,
     email: normalizedEmail,
     subscription: existing?.subscription || state.user?.subscription || "free",
+    plan: existing?.plan || state.user?.plan || (existing?.subscription === "active" ? "monthly" : "free"),
+    accountType: existing?.accountType || state.user?.accountType || (existing?.subscription === "active" ? "paid" : "free"),
+    stripeCustomerId: existing?.stripeCustomerId || state.user?.stripeCustomerId,
+    stripeSubscriptionId: existing?.stripeSubscriptionId || state.user?.stripeSubscriptionId,
+    cancelAtPeriodEnd: Boolean(existing?.cancelAtPeriodEnd || state.user?.cancelAtPeriodEnd),
+    currentPeriodEnd: existing?.currentPeriodEnd || state.user?.currentPeriodEnd,
   };
   state.adminVerified = false;
   upsertAccount(state.user);
@@ -1479,14 +1474,23 @@ async function login(mode) {
     });
     if (response.status === 409) {
       const data = await response.json();
-      showToast(data.error || "An account already exists for this email. Please log in instead.");
-      state.user = null;
-      state.accounts = state.accounts.filter((account) => normalizeEmail(account.email) !== normalizedEmail);
-      state.modal = "auth";
-      state.authTab = "login";
-      state.route = "home";
-      saveState();
-      render();
+      if (data.member) {
+        mergeMemberIntoCurrentUser(data.member);
+        upsertAccount(data.member);
+        state.modal = null;
+        if (!state.pendingSubscriptionPlan) state.route = "account";
+        saveState();
+        render();
+      } else {
+        showToast(data.error || "An account already exists for this email. Please log in instead.");
+        state.user = null;
+        state.accounts = state.accounts.filter((account) => normalizeEmail(account.email) !== normalizedEmail);
+        state.modal = "auth";
+        state.authTab = "login";
+        state.route = "home";
+        saveState();
+        render();
+      }
       return;
     }
     if (response.ok) {

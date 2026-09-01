@@ -89,7 +89,7 @@ exports.handler = async (event, context) => {
   }
 
   if (body.mode === "signup" && existing) {
-    return json(409, { error: "An account already exists for this email. Please log in instead." });
+    return json(200, { member: publicMember(existing), existingAccount: true });
   }
 
   const subscription = existing?.subscription || "free";
@@ -110,3 +110,5 @@ exports.handler = async (event, context) => {
   await store.setJSON("accounts", next);
   return json(200, { member: publicMember(nextMember) });
 };
+
+module.exports = { handler: exports.handler, normalizePlan, publicMember };

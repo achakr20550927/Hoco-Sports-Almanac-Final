@@ -7,6 +7,7 @@ const { redact } = require("../netlify/functions/_security");
 const { subscriptionLineItem } = require("../netlify/functions/_stripe-line-item");
 const { cleanId } = require("../netlify/functions/article-view");
 const { summaryArticle } = require("../netlify/functions/articles");
+const { publicMember } = require("../netlify/functions/members");
 
 test("article sanitizer removes scripts and event handlers", () => {
   const article = normalizeArticle({
@@ -89,4 +90,20 @@ test("article summaries omit full body and oversized data images", () => {
   assert.equal(summary.image, "");
   assert.equal(summary.hasFullImage, true);
   assert.equal(summary.hasFullBody, true);
+});
+
+test("public member preserves annual paid access", () => {
+  const member = publicMember({
+    name: "Coach Osborne",
+    email: "j.osborne715@gmail.com",
+    plan: "annual",
+    subscription: "active",
+    accountType: "paid",
+    stripeCustomerId: "cus_test",
+  });
+
+  assert.equal(member.plan, "annual");
+  assert.equal(member.subscription, "active");
+  assert.equal(member.accountType, "paid");
+  assert.equal(member.stripeCustomerId, "cus_test");
 });

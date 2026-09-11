@@ -139,6 +139,7 @@ button {
   align-items: center;
   gap: 12px;
   color: var(--color-gold);
+  min-width: 0;
 }
 
 .shield {
@@ -156,10 +157,10 @@ button {
 .brand-title {
   display: block;
   font-family: var(--font-serif);
-  font-size: clamp(22px, 2vw, 30px);
+  font-size: 28px;
   font-weight: 800;
   line-height: 1;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .brand-tagline {
@@ -380,6 +381,7 @@ button {
 
 .section-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
   gap: 18px;
@@ -797,6 +799,7 @@ button {
 }
 
 .admin-main {
+  min-width: 0;
   padding: 34px;
   background: var(--color-white);
 }
@@ -808,6 +811,10 @@ button {
   background: var(--color-white);
   padding: 22px;
 }
+
+.table-wrap { max-width: 100%; overflow-x: auto; }
+.section-heading > * { min-width: 0; }
+.section-heading h2 { overflow-wrap: anywhere; }
 
 .publish-grid {
   display: grid;
@@ -1106,9 +1113,14 @@ button {
   }
 }
 
+@media (max-width: 1350px) {
+  .masthead-inner { flex-wrap: wrap; gap: 12px; padding-block: 12px; }
+  .primary-nav { order: 3; width: 100%; flex-wrap: wrap; justify-content: center; }
+}
+
 @media (max-width: 980px) {
   .primary-nav {
-    display: none;
+    gap: 14px;
   }
 
   .picks-grid,
@@ -1156,6 +1168,19 @@ button {
   .masthead-inner {
     min-height: 64px;
   }
+
+  .brand { flex: 1; }
+  .brand-title { font-size: 22px; }
+  .shield { flex: 0 0 30px; }
+  .primary-nav { font-size: 11px; gap: 12px; }
+  .mobile-bottom button { min-width: 0; overflow-wrap: anywhere; }
+  .admin-main, .editor-panel, .article-body { min-width: 0; }
+  .admin-main { padding: 20px; }
+  .editor-panel { padding: 14px; }
+  .admin-main .section-heading h2 { font-size: 28px; }
+  .hero h1, .article-hero h1 { font-size: 36px; overflow-wrap: anywhere; }
+  .page-header h1 { font-size: 32px; overflow-wrap: anywhere; }
+  .footer { padding-bottom: 80px; }
 
   .brand-tagline,
   .datebar {

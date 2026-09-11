@@ -4,6 +4,7 @@ const { getUserEmail } = require("./_admin");
 const { required } = require("./_config");
 const { rateLimit } = require("./_rate-limit");
 const { json, safeError } = require("./_security");
+const { periodEnd, planOf } = require("./_stripe-subscription");
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -34,7 +35,7 @@ function publicMember(member) {
   };
 }
 
-exports.handler = async (event, context) => {
+exports.handler = require("./_security").withErrorHandling(async (event, context) => {
   connectLambda(event);
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
@@ -52,7 +53,7 @@ exports.handler = async (event, context) => {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ["subscription"],
     });
-    const sessionEmail = normalizeEmail(session.customer_details?.email || session.customer_email || session.metadata?.email || session.client_reference_id);
+    const sessionEmail = normalizeEmail(session.metadata?.email || session.client_reference_id || session.customer_email || session.customer_details?.email);
     if (sessionEmail !== normalizedEmail) {
       return json(403, { error: "Checkout session does not match this account." });
     }
@@ -62,11 +63,13 @@ exports.handler = async (event, context) => {
 
     const subscription = session.subscription;
     const subscriptionId = typeof subscription === "string" ? subscription : subscription?.id;
-    const plan = normalizePlan(session.metadata?.plan || subscription?.metadata?.plan);
-    const store = getStore("members");
+    if (!["active", "trialing"].includes(subscription?.status)) return json(409, { error: "This subscription is not currently active. Refresh your account." });
+    const plan = planOf(subscription, session.metadata?.plan);
+    const store = getStore({ name: "members", consistency: "strong" });
     const members = (await store.get("accounts", { type: "json" })) || [];
     const existing = members.find((member) => normalizeEmail(member.email) === normalizedEmail);
     const nextMember = {
+      ...existing,
       name: existing?.name || normalizedEmail.split("@")[0],
       email: normalizedEmail,
       plan,
@@ -75,7 +78,7 @@ exports.handler = async (event, context) => {
       stripeCustomerId: typeof session.customer === "string" ? session.customer : session.customer?.id,
       stripeSubscriptionId: subscriptionId,
       cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
-      currentPeriodEnd: timestampToIso(subscription?.current_period_end),
+      currentPeriodEnd: periodEnd(subscription),
       signedUpAt: existing?.signedUpAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -85,4 +88,4 @@ exports.handler = async (event, context) => {
   } catch (error) {
     return json(error.statusCode || 500, safeError("Checkout session could not be confirmed."));
   }
-};
+});

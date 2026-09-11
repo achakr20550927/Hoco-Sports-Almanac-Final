@@ -1,5 +1,6 @@
 const { connectLambda, getStore } = require("@netlify/blobs");
-const { getUserEmail, requireAdmin } = require("./_admin");
+const { getUserEmail, requireAdmin, isAdminEmail } = require("./_admin");
+const { paid } = require("../../access-policy");
 const { rateLimit } = require("./_rate-limit");
 const { json } = require("./_security");
 
@@ -18,10 +19,10 @@ function publicMember(member) {
   const subscription = member.subscription || "free";
   return {
     name: member.name,
-    email: member.email,
+    email: normalizeEmail(member.email),
     plan: normalizePlan(member.plan, subscription),
     subscription,
-    accountType: member.accountType || (subscription === "active" ? "paid" : "free"),
+    accountType: isAdminEmail(member.email) ? "admin" : paid(member) ? "paid" : "free",
     stripeCustomerId: member.stripeCustomerId,
     stripeSubscriptionId: member.stripeSubscriptionId,
     cancelAtPeriodEnd: Boolean(member.cancelAtPeriodEnd),
@@ -31,9 +32,9 @@ function publicMember(member) {
   };
 }
 
-exports.handler = async (event, context) => {
+async function handle(event, context) {
   connectLambda(event);
-  const store = getStore("members");
+  const store = getStore({ name: "members", consistency: "strong" });
   const members = (await store.get("accounts", { type: "json" })) || [];
 
   if (event.httpMethod === "GET") {
@@ -46,7 +47,7 @@ exports.handler = async (event, context) => {
     }
     const email = normalizeEmail(getUserEmail(event, context) || event.queryStringParameters?.email);
     if (!email) return json(200, { member: null });
-    return json(200, { member: publicMember(members.find((member) => member.email === email)) });
+    return json(200, { member: publicMember(members.find((member) => normalizeEmail(member.email) === email)) });
   }
 
   if (event.httpMethod !== "POST") {
@@ -60,15 +61,18 @@ exports.handler = async (event, context) => {
   const email = normalizeEmail(body.email);
   if (!email) return json(400, { error: "Email is required" });
 
-  const existing = members.find((member) => member.email === email);
+  const existing = members.find((member) => normalizeEmail(member.email) === email);
   if (event.httpMethod === "PATCH") {
     const admin = requireAdmin(event, context);
     if (!admin.ok) return admin.response;
 
+    if (!["free", "monthly", "annual"].includes(body.plan)) return json(400, { error: "Choose Free, Monthly, or Annual." });
+    if (!existing) return json(404, { error: "Member not found. Refresh the member list." });
     const plan = normalizePlan(body.plan);
     const subscription = plan === "free" ? "free" : "active";
     const isAdminAccount = existing?.accountType === "admin";
     const nextMember = {
+      ...existing,
       name: String(body.name || existing?.name || email.split("@")[0]).slice(0, 120),
       email,
       plan,
@@ -83,7 +87,7 @@ exports.handler = async (event, context) => {
       manualPlanUpdatedAt: new Date().toISOString(),
       manualPlanUpdatedBy: admin.email,
     };
-    const next = [nextMember, ...members.filter((member) => member.email !== email)];
+    const next = [nextMember, ...members.filter((member) => normalizeEmail(member.email) !== email)];
     await store.setJSON("accounts", next);
     return json(200, { member: publicMember(nextMember), members: next.map(publicMember) });
   }
@@ -94,6 +98,7 @@ exports.handler = async (event, context) => {
 
   const subscription = existing?.subscription || "free";
   const nextMember = {
+    ...existing,
     name: String(body.name || existing?.name || email.split("@")[0]).slice(0, 120),
     email,
     plan: normalizePlan(existing?.plan, subscription),
@@ -106,9 +111,14 @@ exports.handler = async (event, context) => {
     signedUpAt: existing?.signedUpAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  const next = [nextMember, ...members.filter((member) => member.email !== email)];
+  const next = [nextMember, ...members.filter((member) => normalizeEmail(member.email) !== email)];
   await store.setJSON("accounts", next);
   return json(200, { member: publicMember(nextMember) });
+}
+
+exports.handler = async (event, context) => {
+  try { return await handle(event, context); }
+  catch (error) { return json(error instanceof SyntaxError ? 400 : 503, { error: "Account request failed. Please try again." }); }
 };
 
 module.exports = { handler: exports.handler, normalizePlan, publicMember };

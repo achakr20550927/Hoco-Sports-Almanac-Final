@@ -1,3 +1,13 @@
+function readStorage(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+  catch { return fallback; }
+}
+
+function writeStorage(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch { return false; }
+}
+
 const state = {
   route: "home",
   query: "",
@@ -9,12 +19,17 @@ const state = {
   editingArticleId: null,
   pendingSubscriptionPlan: null,
   heroIndex: 0,
-  adminVerified: JSON.parse(localStorage.getItem("hoco_admin_verified") || "false"),
-  user: JSON.parse(localStorage.getItem("sp_user") || "null"),
-  accounts: JSON.parse(localStorage.getItem("hoco_accounts") || "[]"),
-  adminEmails: JSON.parse(localStorage.getItem("hoco_admin_emails") || '["admin@hocosportsalmanac.com"]'),
+  adminVerified: false,
+  user: readStorage("sp_user", null),
+  accounts: [],
+  adminEmails: [],
+  editorDraft: readStorage("hoco_admin_draft", null),
+  publishing: false,
+  articleErrors: {},
+  articlesLoaded: false,
+  articlesError: "",
   loadingArticleSlugs: new Set(),
-  reads: JSON.parse(localStorage.getItem("sp_reads") || "null") || {
+  reads: readStorage("sp_reads", null) || {
     count: 0,
     month: new Date().toISOString().slice(0, 7),
     article_ids: [],
@@ -78,7 +93,7 @@ const articleImages = {
   "field hockey":
     "https://images.unsplash.com/photo-1600679472829-3044539ce8ed?auto=format&fit=crop&w=1400&q=80",
   "flag football":
-    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=1400&q=80",
+    "https://images.unsplash.com/photo-1566577739112-5180d4bf9390?auto=format&fit=crop&w=1400&q=80",
   softball:
     "https://images.unsplash.com/photo-1562077772-3bd90403f7f0?auto=format&fit=crop&w=1400&q=80",
   tennis:
@@ -219,11 +234,7 @@ const seedArticles = [
   },
 ];
 
-const storedArticles = JSON.parse(localStorage.getItem("hoco_published_articles") || "[]");
-let articles = [
-  ...storedArticles,
-  ...seedArticles.filter((seed) => !storedArticles.some((article) => article.id === seed.id)),
-];
+let articles = [];
 
 const functionBase = "/.netlify/functions";
 
@@ -258,11 +269,8 @@ function articleBodyHtml(article, unlocked) {
 }
 
 function saveState() {
-  localStorage.setItem("sp_user", JSON.stringify(state.user));
-  localStorage.setItem("sp_reads", JSON.stringify(state.reads));
-  localStorage.setItem("hoco_accounts", JSON.stringify(state.accounts));
-  localStorage.setItem("hoco_admin_emails", JSON.stringify(state.adminEmails));
-  localStorage.setItem("hoco_admin_verified", JSON.stringify(Boolean(state.adminVerified)));
+  writeStorage("sp_user", state.user);
+  writeStorage("sp_reads", state.reads);
 }
 
 function savePublishedArticles() {
@@ -275,7 +283,8 @@ function savePublishedArticles() {
 }
 
 function localStoredArticles() {
-  return JSON.parse(localStorage.getItem("hoco_published_articles") || "[]").filter((article) => article.custom);
+  const stored = readStorage("hoco_published_articles", []);
+  return Array.isArray(stored) ? stored.filter((article) => article.custom && article.bodyHtml) : [];
 }
 
 function authHeaders() {
@@ -285,53 +294,65 @@ function authHeaders() {
 }
 
 async function loadRemoteArticles() {
+  const requestedEmail = state.user?.email;
   try {
-    const response = await fetch(`${functionBase}/articles?t=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) return;
+    const response = await fetch(`${functionBase}/articles?t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
+    if (!response.ok) throw new Error("Stories are temporarily unavailable.");
     const data = await response.json();
+    if (state.user?.email !== requestedEmail) return;
     const remoteArticles = Array.isArray(data.articles) ? data.articles : [];
-    if (!remoteArticles.length && localStoredArticles().length) {
-      render();
-      return;
-    }
-    articles = [
-      ...remoteArticles,
-      ...seedArticles.filter((seed) => !remoteArticles.some((article) => article.id === seed.id)),
-    ];
+    articles = remoteArticles;
+    state.articlesLoaded = true;
+    state.articlesError = "";
     state.heroIndex = 0;
-    if (remoteArticles.length) localStorage.removeItem("hoco_published_articles");
     render();
   } catch (error) {
-    // Plain static hosting cannot call Netlify Functions; keep local articles.
+    state.articlesError = "Stories could not be refreshed. Please try again.";
+    render();
   }
 }
 
 async function loadFullArticle(slug) {
   if (!slug || state.loadingArticleSlugs.has(slug)) return;
   state.loadingArticleSlugs.add(slug);
+  const requestedEmail = state.user?.email;
   try {
-    const response = await fetch(`${functionBase}/articles?slug=${encodeURIComponent(slug)}&t=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) return;
+    const response = await fetch(`${functionBase}/articles?slug=${encodeURIComponent(slug)}&t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
     const data = await response.json();
-    if (!data.article) return;
-    articles = articles.map((article) => (article.slug === slug ? { ...article, ...data.article } : article));
-    if (state.route === `article:${slug}`) render();
+    if (state.user?.email !== requestedEmail) return null;
+    if (!response.ok) {
+      state.articleErrors[slug] = { message: data.error || "Story could not be loaded.", status: response.status };
+      if (data.article) articles = articles.map((article) => article.slug === slug ? { ...data.article, locked: true } : article);
+      return null;
+    }
+    if (!data.article) throw new Error("Story is not available.");
+    delete state.articleErrors[slug];
+    articles = articles.map((article) => (article.slug === slug ? { ...article, ...data.article, locked: false } : article));
+    return data.article;
   } catch (error) {
-    showToast("Story could not be loaded. Please refresh and try again.");
+    state.articleErrors[slug] = { message: "Story could not be loaded. Please try again.", status: 503 };
+    return null;
   } finally {
     state.loadingArticleSlugs.delete(slug);
+    if (state.route === `article:${slug}`) render();
   }
 }
 
 async function syncMember() {
   if (!state.user?.email) return;
+  const requestedEmail = state.user.email;
   try {
     const response = await fetch(`${functionBase}/members?email=${encodeURIComponent(state.user.email)}`, {
       headers: authHeaders(),
     });
     if (!response.ok) return;
     const data = await response.json();
+    if (state.user?.email !== requestedEmail) return;
     if (data.member) {
+      if (state.user.plan !== data.member.plan || state.user.subscription !== data.member.subscription) {
+        state.articleErrors = {};
+        articles = articles.map(({ locked, ...article }) => article);
+      }
       mergeMemberIntoCurrentUser(data.member);
       upsertAccount(data.member);
       saveState();
@@ -348,12 +369,14 @@ async function refreshAdminStatus() {
     saveState();
     return;
   }
+  const requestedEmail = state.user.email;
   try {
     const response = await fetch(`${functionBase}/admin-status`, {
       headers: authHeaders(),
     });
     if (!response.ok) return;
     const data = await response.json();
+    if (state.user?.email !== requestedEmail) return;
     state.adminVerified = Boolean(data.isAdmin);
     if (state.adminVerified) {
       state.user = {
@@ -371,12 +394,13 @@ async function refreshAdminStatus() {
 }
 
 async function loadAdminMembers() {
-  if (!isAdmin()) return;
+  if (!isAdmin() || state.loadingMembers) return;
+  state.loadingMembers = true;
   try {
     const response = await fetch(`${functionBase}/members?list=all`, {
       headers: authHeaders(),
     });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error("Members could not be refreshed.");
     const data = await response.json();
     if (Array.isArray(data.members)) {
       state.accounts = data.members;
@@ -385,7 +409,10 @@ async function loadAdminMembers() {
       render();
     }
   } catch (error) {
-    // Keep local member list when Netlify Functions are unavailable.
+    state.membersLoaded = true;
+    showToast("Members could not be refreshed. Use Refresh Members to retry.");
+  } finally {
+    state.loadingMembers = false;
   }
 }
 
@@ -461,20 +488,19 @@ function isAdmin(user = state.user) {
   const isCurrentUser = Boolean(email && email === normalizeEmail(state.user?.email));
   return Boolean(
     email &&
-      ((isCurrentUser && state.adminVerified) ||
-        user.accountType === "admin" ||
-        state.adminEmails.map(normalizeEmail).includes(email))
+      (isCurrentUser ? state.adminVerified : user.accountType === "admin")
   );
 }
 
 function accountType(user = state.user) {
   if (isAdmin(user)) return "admin";
-  if (user?.subscription === "active") return "paid";
+  if (HocoAccess.paid(user)) return "paid";
   if (user) return "free";
   return "anonymous";
 }
 
 function membershipPlan(user = state.user) {
+  if (!HocoAccess.paid(user)) return "free";
   const plan = String(user?.plan || "").toLowerCase();
   if (["monthly", "annual"].includes(plan)) return plan;
   return user?.subscription === "active" ? "monthly" : "free";
@@ -533,7 +559,7 @@ function updateLocationHash(hash) {
 }
 
 function routeTo(route, options = {}) {
-  if (route === "admin" && !isAdmin()) {
+  if (route === "admin" && !isAdmin() && !state.user?.email) {
     state.modal = "auth";
     state.authTab = "login";
     showToast("Log in with an admin email to access Admin.");
@@ -580,7 +606,9 @@ function navAccount(event) {
 }
 
 function applyHashRoute() {
-  const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
+  let hash;
+  try { hash = decodeURIComponent(location.hash.replace(/^#/, "")); }
+  catch { routeTo("home"); return; }
   if (!hash) return;
   if (hash.startsWith("article-")) {
     openArticle(hash.slice("article-".length), { updateHash: false });
@@ -601,7 +629,7 @@ function showToast(message) {
 }
 
 function isSubscriber() {
-  return state.user?.subscription === "active" || ["monthly", "annual"].includes(String(state.user?.plan || "").toLowerCase());
+  return HocoAccess.paid(state.user);
 }
 
 function isCancellationScheduled() {
@@ -618,6 +646,7 @@ function hasUnlimitedReads() {
 }
 
 function readsRemaining() {
+  resetReadMonth();
   if (hasUnlimitedReads()) return "Unlimited";
   return Math.max(0, 5 - state.reads.count);
 }
@@ -638,10 +667,21 @@ function markRead(article, unlocked) {
   }
 }
 
+function resetReadMonth() {
+  const month = new Date().toISOString().slice(0, 7);
+  if (state.reads.month !== month) state.reads = { count: 0, month, article_ids: [] };
+}
+
+function visibleArticles() {
+  return articles.filter((article) => HocoAccess.visible(article, isAdmin()));
+}
+
 function canRead(article) {
+  resetReadMonth();
   const access = article.access || (article.premium ? "paid" : "public");
   const type = accountType();
   if (type === "admin") return true;
+  if (!HocoAccess.allowed(article, state.user)) return false;
   if (access === "admin") return false;
   if (access === "paid") return hasUnlimitedReads();
   if (access === "free") return type === "free" || type === "paid";
@@ -650,7 +690,6 @@ function canRead(article) {
 
 function header() {
   return `
-    <div class="breaking"><strong>BREAKING:</strong><span>Howard County spring championship archive is now open for subscriber preview.</span></div>
     <header class="masthead" id="masthead">
       <div class="masthead-inner">
         <a href="#home" class="brand link-button" data-route="home" aria-label="Home">
@@ -690,7 +729,7 @@ function footer() {
           <div><h4>Account</h4><a href="#account" data-action="account">${state.user ? "My Account" : "Login"}</a><a href="#subscribe" data-route="subscribe">Subscribe</a></div>
           <div><h4>Legal</h4><a href="#about" data-route="about">About</a><a href="#contact" data-route="contact">Contact</a><a href="#">Privacy</a><a href="#">Terms</a></div>
         </div>
-        <p class="meta">© 2026 ${SITE_NAME}. Independent publication prototype.</p>
+        <p class="meta">© 2026 ${SITE_NAME}. Independent publication.</p>
       </div>
     </footer>
     <nav class="mobile-bottom" aria-label="Mobile">
@@ -713,7 +752,7 @@ function card(article, compact = false) {
   return `<article class="card">
     <a href="${routeHash(`article:${article.slug}`)}" data-article="${escapeHtml(article.slug)}">
       <div class="card-image">
-        <img src="${escapeHtml(article.image || articleImages[article.sport] || articleImages.football)}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${articleImages[article.sport] || articleImages.football}'" />
+        <img src="${escapeHtml(usableArticleImage(article))}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${defaultHeroImage}'" />
         ${(article.access || article.premium) && (article.access || "paid") !== "public" ? `<span class="badge premium">${accessLabel(article.access || "paid")}</span>` : ""}
       </div>
       <div class="card-body">
@@ -728,7 +767,7 @@ function card(article, compact = false) {
 
 function filteredArticles() {
   const q = state.query.trim().toLowerCase();
-  return articles.filter((article) => {
+  return visibleArticles().filter((article) => {
     const sportOk = state.sport === "All" || article.sport === state.sport;
     const yearOk = state.year === "All" || String(article.year) === String(state.year);
     const qOk =
@@ -743,21 +782,24 @@ function filteredArticles() {
 
 function usableArticleImage(article) {
   const image = String(article?.image || "").trim();
+  if (image.includes("photo-1508098682722-e99c43a406b2")) return defaultHeroImage;
   return image || articleImages[article?.sport] || defaultHeroImage;
 }
 
 function heroArticles() {
-  const featured = articles.find((article) => article.featured);
-  const ordered = featured ? [featured, ...articles.filter((article) => article.slug !== featured.slug)] : articles;
+  const available = visibleArticles();
+  const featured = available.find((article) => article.featured);
+  const ordered = featured ? [featured, ...available.filter((article) => article.slug !== featured.slug)] : available;
   return ordered.slice(0, Math.min(6, ordered.length));
 }
 
 function homePage() {
   const heroes = heroArticles();
-  const featured = heroes[state.heroIndex % Math.max(heroes.length, 1)] || articles[0];
+  const featured = heroes[state.heroIndex % Math.max(heroes.length, 1)];
+  if (!featured) return `${header()}<main class="main container"><h1>HoCo Sports Almanac</h1><p>${state.articlesError || (state.articlesLoaded ? "No stories published yet." : "Loading the latest stories...")}</p>${state.articlesError ? '<button class="btn" onclick="loadRemoteArticles()">Try Again</button>' : ""}</main>${footer()}${modal()}`;
   const heroImage = usableArticleImage(featured);
-  const picks = articles.slice(1, 4);
-  const latest = articles.slice(0, 6);
+  const picks = visibleArticles().slice(1, 4);
+  const latest = visibleArticles().slice(0, 6);
   return `
     ${header()}
     <section class="hero">
@@ -797,7 +839,7 @@ function sidebar() {
     </section>
     <section class="sidebar-box">
       <h3>Top Stories This Week</h3>
-      <ol class="top-list">${articles.slice(0, 5).map((article) => `<li>${card(article, true)}</li>`).join("")}</ol>
+      <ol class="top-list">${visibleArticles().slice(0, 5).map((article) => `<li>${card(article, true)}</li>`).join("")}</ol>
     </section>
     <section class="sidebar-box">
       <h3>Newsletter</h3>
@@ -811,7 +853,7 @@ function sidebar() {
 function sportSections() {
   return `<section style="margin-top:52px">
     ${["football", "basketball", "baseball"].map((sport) => {
-      const group = articles.filter((article) => article.sport === sport).slice(0, 4);
+      const group = visibleArticles().filter((article) => article.sport === sport).slice(0, 4);
       return `<div style="margin-bottom:36px">
         <div class="section-heading"><h2>${sportLabel(sport)}</h2><button type="button" class="btn-ghost" data-sport="${escapeHtml(sport)}">See All ${sportLabel(sport)} Stories</button></div>
         <div class="sport-grid">${group.map((article) => card(article)).join("")}</div>
@@ -821,15 +863,15 @@ function sportSections() {
 }
 
 function archivePage() {
-  const years = ["All", ...new Set(articles.map((article) => article.year))];
+  const years = ["All", ...new Set(visibleArticles().map((article) => article.year))];
   const results = filteredArticles();
   return `
     ${header()}
-    <section class="page-header"><div class="container"><span class="eyebrow">Archive and Search</span><h1>Find the county record by sport, year, or keyword.</h1><p class="page-deck">The PRD calls for sport/year browsing and full-text search. This prototype models that discovery path client-side.</p></div></section>
+    <section class="page-header"><div class="container"><span class="eyebrow">Archive and Search</span><h1>Find the county record by sport, year, or keyword.</h1></div></section>
     <main class="main container">
       <div class="filter-panel">
         <div class="filter-row">
-          <input class="input" value="${state.query}" oninput="state.query=this.value; render()" placeholder="Search football, Glenelg, playoffs, archive..." />
+          <input class="input" id="archiveSearch" value="${escapeHtml(state.query)}" oninput="updateSearch(this)" placeholder="Search football, Glenelg, playoffs, archive..." />
           <select class="select" onchange="state.sport=this.value; render()">${["All", ...sports].map((sport) => `<option ${state.sport === sport ? "selected" : ""}>${sport}</option>`).join("")}</select>
           <select class="select" onchange="state.year=this.value; render()">${years.map((year) => `<option ${String(state.year) === String(year) ? "selected" : ""}>${year}</option>`).join("")}</select>
         </div>
@@ -843,19 +885,25 @@ function archivePage() {
 }
 
 function articlePage(slug) {
-  const article = articles.find((item) => item.slug === slug) || articles[0];
-  if (article.custom && !article.bodyHtml) {
+  const article = visibleArticles().find((item) => item.slug === slug);
+  if (!article) return `${header()}<main class="main container"><h1>${state.articlesLoaded ? "Story unavailable" : "Loading story..."}</h1><p>${state.articlesLoaded ? "This story may be private or no longer published." : (state.articlesError || "")}</p><a class="btn" href="#home" data-route="home">Home</a></main>${footer()}${modal()}`;
+  if (article.id !== "preview" && state.viewedArticleId !== article.id) {
+    state.viewedArticleId = article.id;
+    recordArticleView(article.id);
+  }
+  const error = state.articleErrors[slug];
+  if (article.custom && !article.bodyHtml && !error && !article.locked && canRead(article)) {
     loadFullArticle(article.slug);
   }
-  const unlocked = canRead(article);
-  const hasBody = Boolean(article.bodyHtml);
+  const unlocked = canRead(article) && !article.locked;
+  const hasBody = Boolean(article.bodyHtml) || !article.custom;
   if (hasBody) markRead(article, unlocked);
-  const bodyHtml = hasBody ? articleBodyHtml(article, unlocked) : "<p>Loading story...</p>";
+  const bodyHtml = !unlocked ? paywall() : error ? `<p role="alert">${escapeHtml(error.message)}</p><button class="btn" data-retry-article="${escapeHtml(slug)}">Try Again</button>` : hasBody ? articleBodyHtml(article, true) : "<p>Loading story...</p>";
   return `
     ${header()}
     <article class="article-shell">
       <section class="article-hero">
-        <img src="${escapeHtml(article.image || articleImages[article.sport] || articleImages.football)}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${articleImages[article.sport] || articleImages.football}'" />
+        <img src="${escapeHtml(usableArticleImage(article))}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${defaultHeroImage}'" />
         <div class="article-hero-content">
           <span class="badge">${sportLabel(article.sport)}</span>
           <h1>${article.title}</h1>
@@ -865,17 +913,17 @@ function articlePage(slug) {
         </div>
       </section>
       <div class="article-content-wrap">
-        <div class="share-bar"><button onclick="showToast('Share link copied.')">↗</button><button onclick="showToast('Story saved.')">★</button><button onclick="showToast('Bookmark added.')">▣</button></div>
+        <div class="share-bar"><button title="Copy story link" aria-label="Copy story link" onclick="shareArticle()">↗</button></div>
         <div class="article-body ${unlocked ? "" : "locked"}">
           ${bodyHtml}
           ${unlocked && article.credits ? `<section class="credits-box"><h2>Credits</h2><p>${escapeHtml(article.credits).replaceAll("\n", "<br>")}</p></section>` : ""}
           <h2>Related Coverage</h2>
-          <div class="article-grid">${articles.filter((item) => item.slug !== article.slug).slice(0, 2).map((item) => card(item)).join("")}</div>
+          <div class="article-grid">${visibleArticles().filter((item) => item.slug !== article.slug).slice(0, 2).map((item) => card(item)).join("")}</div>
         </div>
         <aside class="article-aside">
           <strong>Article Record</strong><br />
           Sport: ${sportLabel(article.sport)}<br />Season: ${article.year}<br />Tags: ${(article.tags || []).join(", ")}<br /><br />
-          Reads this month: ${state.reads.count} / 5<br />
+          Reads: ${hasUnlimitedReads() ? "Unlimited" : `${state.reads.count} / 5 this month`}<br />
           Access: ${accessLabel(article.access || "public")}<br />
           Your account: ${accountType()}
         </aside>
@@ -889,10 +937,10 @@ function articlePage(slug) {
 function paywall() {
   return `<section class="paywall-card">
     <div style="font-size:28px;color:var(--color-gold)">▣</div>
-    <span class="eyebrow">You've reached your free limit</span>
+    <span class="eyebrow">Membership access</span>
     <h2>Subscribe to Keep Reading</h2>
-    <p>Log in or subscribe to unlock this story based on its account access level.</p>
-    <button type="button" class="btn" data-route="subscribe" style="width:100%;margin-bottom:10px">Subscribe Now</button>
+    <p>${isSubscriber() ? "Your membership could not be confirmed. Refresh your account, then try this story again." : "Log in to your account or subscribe to read this story."}</p>
+    <button type="button" class="btn" data-route="${isSubscriber() ? "account" : "subscribe"}" style="width:100%;margin-bottom:10px">${isSubscriber() ? "My Account" : "Subscribe Now"}</button>
     <button class="btn-secondary" onclick="state.modal='auth'; state.authTab='login'; render()" style="width:100%">Log In</button>
     <p class="meta">5 free articles per month. No credit card required to create a free account.</p>
   </section>`;
@@ -939,7 +987,7 @@ function accountPage() {
 
 function adminPage() {
   if (!isAdmin()) {
-    return `${header()}<section class="page-header"><div class="container"><span class="eyebrow">Admin</span><h1>Admin access required.</h1><p class="page-deck">Log in with an email listed in admin settings. Default local admin: admin@hocosportsalmanac.com.</p><button class="btn" onclick="state.modal='auth'; state.authTab='login'; render()">Log In</button></div></section>${footer()}${modal()}`;
+    return `${header()}<section class="page-header"><div class="container"><span class="eyebrow">Admin</span><h1>Admin access required.</h1><p class="page-deck">Only authorized administrators can open this page.</p><button class="btn" onclick="refreshAdminStatus()">Check Access</button><button class="btn-secondary" onclick="state.modal='auth'; state.authTab='login'; render()">Log In</button></div></section>${footer()}${modal()}`;
   }
   return `
     ${header()}
@@ -947,7 +995,7 @@ function adminPage() {
       <aside class="admin-sidebar">
         <a href="#home" class="brand link-button" data-route="home"><span class="shield">HC</span><span><span class="brand-title" style="font-size:24px">Admin</span></span></a>
         <nav class="admin-nav">
-          ${["publish", "dashboard", "articles", "subscribers", "settings"].map((tab) => `<button type="button" class="${state.adminTab === tab ? "active" : ""}" onclick="state.adminTab='${tab}'; render()">${tab[0].toUpperCase() + tab.slice(1)}</button>`).join("")}
+          ${["publish", "dashboard", "articles", "subscribers", "newsletter", "settings"].map((tab) => `<button type="button" class="${state.adminTab === tab ? "active" : ""}" onclick="state.adminTab='${tab}'; render()">${tab[0].toUpperCase() + tab.slice(1)}</button>`).join("")}
         </nav>
       </aside>
       <section class="admin-main">${adminPanel()}</section>
@@ -959,12 +1007,13 @@ function adminPage() {
 
 function publishPanel() {
   const editingArticle = state.editingArticleId ? articles.find((article) => article.id === state.editingArticleId) : null;
-  const draft = editingArticle || JSON.parse(localStorage.getItem("hoco_admin_draft") || "null") || {};
+  if (!state.editorDraft) state.editorDraft = { id: `custom-${crypto.randomUUID()}`, access: "paid" };
+  const draft = state.editorDraft;
   return `<div class="section-heading">
       <h2>${editingArticle ? "Edit Article" : "Publish Article"}</h2>
       <span class="section-label">Admin-only workspace</span>
     </div>
-    <form class="publish-grid" onsubmit="event.preventDefault(); publishArticle()">
+    <form class="publish-grid" oninput="captureDraft()" onchange="captureDraft()" onsubmit="event.preventDefault(); publishArticle()">
       <section class="editor-panel">
         <label class="field-label">Headline</label>
         <input class="input headline-input" id="adminTitle" value="${escapeHtml(draft.title || "")}" placeholder="Write the article headline" required />
@@ -996,10 +1045,11 @@ function publishPanel() {
         <textarea class="textarea" id="adminCredits" placeholder="Reporting, photo, stat, or archive credits">${escapeHtml(draft.credits || "")}</textarea>
         <label class="field-label">Who Can Read It</label>
         <select class="select" id="adminAccess">
-          ${["public", "free", "paid", "admin"].map((access) => `<option value="${access}" ${(draft.access || "public") === access ? "selected" : ""}>${accessLabel(access)}</option>`).join("")}
+          ${["paid", "public", "free", "admin"].map((access) => `<option value="${access}" ${(draft.access || "paid") === access ? "selected" : ""}>${access === "admin" ? "Private - admins only" : accessLabel(access)}</option>`).join("")}
         </select>
+        <p id="privateNotice" class="account-note" ${draft.access === "admin" ? "" : "hidden"}>Private articles are hidden from all readers, including paid members.</p>
         <label class="check-row"><input type="checkbox" id="adminFeatured" ${draft.featured ? "checked" : ""}> Feature on homepage</label>
-        <button class="btn" type="submit">${editingArticle ? "Save Changes" : "Publish Now"}</button>
+        <button class="btn" type="submit" ${state.publishing ? "disabled" : ""}>${state.publishing ? "Saving..." : editingArticle ? "Save Changes" : "Publish Now"}</button>
         <button class="btn-secondary" type="button" onclick="saveDraft()">Save Draft</button>
         <button class="btn-secondary" type="button" onclick="previewDraft()">Preview</button>
         ${editingArticle ? `<button class="btn-danger" type="button" onclick="cancelEdit()">Cancel Edit</button>` : ""}
@@ -1014,7 +1064,8 @@ function adminPanel() {
   }
   if (state.adminTab === "articles") {
     const localOnly = localStoredArticles();
-    return `<div class="section-heading"><h2>Article Manager</h2><button class="btn" onclick="state.adminTab='publish'; render()">New Article</button></div>
+    return `<div class="section-heading"><h2>Article Manager</h2><button class="btn" onclick="newArticle()">New Article</button></div>
+      ${articles.some((a) => a.access === "admin") ? '<p class="account-note">Private articles are hidden from readers. Edit a story and choose "paid members" to make it available to subscribers.</p>' : ""}
       ${localOnly.length ? `<p class="account-note">${localOnly.length} article${localOnly.length === 1 ? "" : "s"} saved only in this browser. <button class="btn-secondary table-action" onclick="syncLocalArticles()">Sync to Website</button></p>` : ""}
       <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Views</th><th>Actions</th></tr></thead><tbody>${articles.map((a) => `<tr><td>${escapeHtml(a.title)}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td>${Number(a.views || 0).toLocaleString()}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
   }
@@ -1027,20 +1078,15 @@ function adminPanel() {
       <p class="meta">${state.membersLoaded ? "Showing shared Netlify member records." : "Loading shared members. Local fallback may include only this browser's accounts."}</p>
       <div class="table-wrap" style="margin-top:22px"><table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Account Type</th><th>Plan</th><th>Subscription</th><th>Signed Up</th></tr></thead><tbody>${state.accounts.map((account) => {
         const plan = membershipPlan(account);
-        return `<tr><td>${escapeHtml(account.name || "")}</td><td>${escapeHtml(account.email || "")}</td><td>${isAdmin(account) ? "admin" : escapeHtml(account.accountType || "free")}</td><td><select class="select table-select" onchange="updateMemberPlan('${escapeHtml(account.email || "")}', this.value)">${["free", "monthly", "annual"].map((option) => `<option value="${option}" ${plan === option ? "selected" : ""}>${membershipLabel(option)}</option>`).join("")}</select></td><td>${escapeHtml(account.subscription || "free")}</td><td>${account.signedUpAt ? new Date(account.signedUpAt).toLocaleDateString() : ""}</td></tr>`;
+        return `<tr><td>${escapeHtml(account.name || "")}</td><td>${escapeHtml(account.email || "")}</td><td>${isAdmin(account) ? "admin" : escapeHtml(account.accountType || "free")}</td><td><select class="select table-select" data-member-email="${escapeHtml(account.email || "")}" onchange="updateMemberPlan(this.dataset.memberEmail, this.value)">${["free", "monthly", "annual"].map((option) => `<option value="${option}" ${plan === option ? "selected" : ""}>${membershipLabel(option)}</option>`).join("")}</select></td><td>${escapeHtml(account.subscription || "free")}</td><td>${account.signedUpAt ? new Date(account.signedUpAt).toLocaleDateString() : ""}</td></tr>`;
       }).join("") || `<tr><td colspan="6">No signups found yet.</td></tr>`}</tbody></table></div>`;
   }
+  if (state.adminTab === "newsletter") {
+    return `<div class="section-heading"><h2>Newsletter Signups</h2><button class="btn-secondary" onclick="loadNewsletter()">Refresh Signups</button></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Email</th><th>Signed Up</th></tr></thead><tbody>${(state.newsletter || []).map((member) => `<tr><td>${escapeHtml(member.email)}</td><td>${formatDate(member.subscribedAt)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
   if (state.adminTab === "settings") {
-    return `<div class="section-heading"><h2>Site Settings</h2><button class="btn" onclick="showToast('Settings saved for prototype.')">Save</button></div>
-      <div class="editor-panel">
-        <label><input type="checkbox" checked> Breaking news banner enabled</label>
-        <label class="field-label">Breaking News Text</label>
-        <input class="input" value="Howard County spring championship archive is now open for subscriber preview.">
-        <label class="field-label">Admin Emails</label>
-        <textarea class="textarea" id="adminEmailsInput" placeholder="one email per line or comma-separated">${state.adminEmails.join("\n")}</textarea>
-        <button class="btn" style="margin-top:12px" onclick="saveAdminEmails()">Save Admin Emails</button>
-        <p class="meta">Production should store these in Netlify env var ADMIN_EMAILS and enforce them server-side in every write function.</p>
-      </div>`;
+    return `<div class="section-heading"><h2>Site Settings</h2></div>
+      <p>Administrator access is managed through ADMIN_EMAILS in Netlify. Membership changes are available under Subscribers.</p>`;
   }
   return `<div class="section-heading"><h2>Dashboard</h2><span class="section-label">Admin email gated in production</span></div>
     <div class="stats-grid"><div class="stat-card"><span class="eyebrow">Published</span><strong>${articles.length}</strong></div><div class="stat-card"><span class="eyebrow">Paid Members</span><strong>${state.accounts.filter((account) => account.subscription === "active").length}</strong></div><div class="stat-card"><span class="eyebrow">Signed Up Emails</span><strong>${state.accounts.length}</strong></div></div>
@@ -1058,19 +1104,19 @@ function getDraftFromForm() {
   const subtitle = document.getElementById("adminSubtitle")?.value.trim() || "";
   const plainWords = document.getElementById("adminBody")?.innerText.trim().split(/\s+/).filter(Boolean).length || 0;
   return {
-    id: `custom-${Date.now()}`,
-    slug: `${slugify(title)}-${Date.now().toString().slice(-4)}`,
+    id: state.editingArticleId || state.editorDraft?.id || `custom-${crypto.randomUUID()}`,
+    slug: state.editingArticleId ? state.editorDraft?.slug : slugify(title),
     title,
     subtitle,
     sport,
     year: Number(document.getElementById("adminYear")?.value) || new Date().getFullYear(),
     image: document.getElementById("adminImage")?.value.trim() || articleImages[sport] || articleImages.football,
-    access: document.getElementById("adminAccess")?.value || "public",
+    access: document.getElementById("adminAccess")?.value || "paid",
     featured: Boolean(document.getElementById("adminFeatured")?.checked),
     author: document.getElementById("adminAuthor")?.value.trim() || AUTHOR_NAME,
     imageCredit: document.getElementById("adminImageCredit")?.value.trim() || "",
     credits: document.getElementById("adminCredits")?.value.trim() || "",
-    date: new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date()),
+    date: state.editorDraft?.date || new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date()),
     readTime: Math.max(1, Math.ceil(plainWords / 238)),
     bodyHtml,
     tags: [sport, "Howard County"],
@@ -1079,26 +1125,34 @@ function getDraftFromForm() {
 }
 
 function saveDraft() {
-  localStorage.setItem("hoco_admin_draft", JSON.stringify(getDraftFromForm()));
-  showToast("Draft saved in this browser.");
+  captureDraft();
+  showToast(writeStorage("hoco_admin_draft", state.editorDraft) ? "Draft saved in this browser." : "Browser storage is full. Keep this tab open and try publishing again.");
+}
+
+function captureDraft() {
+  if (!document.getElementById("adminTitle")) return;
+  state.editorDraft = getDraftFromForm();
+  const notice = document.getElementById("privateNotice");
+  if (notice) notice.hidden = state.editorDraft.access !== "admin";
+}
+
+function newArticle() {
+  state.editingArticleId = null;
+  state.editorDraft = null;
+  state.adminTab = "publish";
+  render();
 }
 
 async function publishArticle() {
+  if (state.publishing || !isAdmin()) return;
   const article = getDraftFromForm();
+  if (!document.getElementById("adminTitle")?.value.trim()) return showToast("A headline is required.");
+  if (!document.getElementById("adminBody")?.textContent.trim() && !/<img\b/i.test(article.bodyHtml)) return showToast("Add the article body before publishing.");
+  if (article.access === "admin" && !confirm("Publish privately? Paid members will not see or be able to read this article.")) return;
+  state.editorDraft = article;
+  state.publishing = true;
+  render();
   const wasEditing = Boolean(state.editingArticleId);
-  let publishedToWebsite = false;
-  let publishMessage = "Article published to the website.";
-  if (article.featured) {
-    articles = articles.map((item) => ({ ...item, featured: false }));
-  }
-  if (state.editingArticleId) {
-    article.id = state.editingArticleId;
-    article.slug = articles.find((item) => item.id === state.editingArticleId)?.slug || article.slug;
-    articles = articles.map((item) => (item.id === state.editingArticleId ? article : item));
-    state.editingArticleId = null;
-  } else {
-    articles = [article, ...articles];
-  }
   try {
     const response = await fetch(`${functionBase}/articles`, {
       method: wasEditing ? "PUT" : "POST",
@@ -1109,20 +1163,19 @@ async function publishArticle() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Publish failed");
     const remoteArticles = Array.isArray(data.articles) ? data.articles : [data.article];
-    articles = [
-      ...remoteArticles,
-      ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
-    ];
-    localStorage.removeItem("hoco_published_articles");
-    publishedToWebsite = true;
+    articles = remoteArticles;
+    state.editorDraft = null;
+    state.editingArticleId = null;
+    localStorage.removeItem("hoco_admin_draft");
+    state.adminTab = "articles";
+    showToast(article.access === "admin" ? "Private article saved. Hidden from readers." : "Article saved and available to readers.");
   } catch (error) {
-    savePublishedArticles();
-    publishMessage = error.message || "Backend unavailable; saved in this browser only.";
+    writeStorage("hoco_admin_draft", article);
+    showToast(`${error.message || "Article could not be saved."} Your draft is still open; it has not been published.`);
+  } finally {
+    state.publishing = false;
+    render();
   }
-  localStorage.removeItem("hoco_admin_draft");
-  state.adminTab = "articles";
-  render();
-  showToast(publishedToWebsite ? publishMessage : `${publishMessage} It is not public until synced.`);
 }
 
 async function syncLocalArticles() {
@@ -1149,10 +1202,7 @@ async function syncLocalArticles() {
       const data = await response.json();
       remoteArticles = Array.isArray(data.articles) ? data.articles : [];
     }
-    articles = [
-      ...remoteArticles,
-      ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
-    ];
+    articles = remoteArticles;
     localStorage.removeItem("hoco_published_articles");
     render();
     showToast("Local articles synced to the website.");
@@ -1162,6 +1212,7 @@ async function syncLocalArticles() {
 }
 
 function previewDraft() {
+  captureDraft();
   const article = { ...getDraftFromForm(), id: "preview", slug: "preview" };
   const existing = articles.filter((item) => item.slug !== "preview");
   articles = [article, ...existing];
@@ -1169,8 +1220,14 @@ function previewDraft() {
   render();
 }
 
-function editArticle(id) {
+async function editArticle(id) {
+  if (!isAdmin()) return;
+  const existing = articles.find((article) => article.id === id);
+  if (!existing) return;
+  const full = await loadFullArticle(existing.slug);
+  if (!full) return showToast("The complete article could not be loaded. Please try again before editing.");
   state.editingArticleId = id;
+  state.editorDraft = { ...full };
   state.adminTab = "publish";
   render();
 }
@@ -1183,7 +1240,6 @@ function cancelEdit() {
 
 async function deleteArticle(id) {
   if (!confirm("Delete this article?")) return;
-  articles = articles.filter((article) => article.id !== id);
   try {
     const response = await fetch(`${functionBase}/articles`, {
       method: "DELETE",
@@ -1194,17 +1250,12 @@ async function deleteArticle(id) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Delete failed");
     const remoteArticles = Array.isArray(data.articles) ? data.articles : [];
-    articles = [
-      ...remoteArticles,
-      ...seedArticles.filter((seed) => !remoteArticles.some((item) => item.id === seed.id)),
-    ];
-    localStorage.removeItem("hoco_published_articles");
+    articles = remoteArticles;
+    showToast("Article deleted.");
   } catch (error) {
-    savePublishedArticles();
-    showToast(error.message || "Backend unavailable; deleted in this browser only.");
+    showToast(error.message || "Article could not be deleted. Please try again.");
   }
   render();
-  showToast("Article deleted.");
 }
 
 function saveAdminEmails() {
@@ -1223,6 +1274,12 @@ function saveAdminEmails() {
   showToast("Admin emails updated.");
 }
 
+function csvCell(value) {
+  const raw = String(value ?? "");
+  const safe = /^[=+@\-\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('"', '""')}"`;
+}
+
 function exportAccountsCsv() {
   const rows = [
     ["name", "email", "account_type", "plan", "subscription", "signed_up_at"],
@@ -1235,7 +1292,7 @@ function exportAccountsCsv() {
       account.signedUpAt,
     ]),
   ];
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1273,19 +1330,27 @@ async function updateMemberPlan(email, plan) {
   }
 }
 
-function joinNewsletter() {
+async function joinNewsletter() {
   const input = document.getElementById("newsletterEmail");
   const email = normalizeEmail(input?.value);
-  if (!email) {
-    showToast("Enter an email first.");
-    return;
-  }
-  upsertAccount({ name: email.split("@")[0], email, subscription: "free", accountType: "free" });
-  saveState();
-  input.value = "";
-  showToast("Email added to the member list.");
+  if (!email) return showToast("Enter your email address.");
+  try {
+    const response = await fetch(`${functionBase}/newsletter`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Signup could not be saved.");
+    if (input) input.value = "";
+    showToast("You have joined the newsletter list.");
+  } catch (error) { showToast(error.message || "Signup could not be saved. Please try again."); }
 }
 
+async function loadNewsletter() {
+  try {
+    const response = await fetch(`${functionBase}/newsletter`, { headers: authHeaders() });
+    if (!response.ok) throw new Error("Newsletter signups could not be loaded.");
+    state.newsletter = (await response.json()).subscribers || [];
+    render();
+  } catch (error) { showToast(error.message); }
+}
 function formatEditor(type) {
   const editor = document.getElementById("adminBody");
   editor?.focus();
@@ -1301,6 +1366,7 @@ function insertImageHtml(src, caption = "") {
   editor?.focus();
   const html = `<figure><img src="${escapeHtml(src)}" alt="${escapeHtml(caption || "Article image")}" /><figcaption>${escapeHtml(caption || "Image caption")}</figcaption></figure><p></p>`;
   document.execCommand("insertHTML", false, html);
+  captureDraft();
 }
 
 function insertImageFromUrl() {
@@ -1330,7 +1396,13 @@ function compressImageFile(file, maxWidth = 1200, quality = 0.78) {
         canvas.height = height;
         const context = canvas.getContext("2d");
         context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        let encoded = canvas.toDataURL("image/jpeg", quality);
+        while (encoded.length > 700000 && quality > 0.35) {
+          quality -= 0.1;
+          encoded = canvas.toDataURL("image/jpeg", quality);
+        }
+        if (encoded.length > 750000) { reject(new Error("Image is too large. Please choose a smaller file.")); return; }
+        resolve(encoded);
       };
       image.src = reader.result;
     };
@@ -1363,6 +1435,7 @@ function uploadHeroImage(event) {
     const input = document.getElementById("adminImage");
     const status = document.getElementById("heroImageStatus");
       if (input) input.value = src;
+      captureDraft();
     if (status) status.textContent = `Hero image uploaded: ${file.name}`;
     showToast("Hero image uploaded.");
     })
@@ -1402,12 +1475,18 @@ function render() {
 }
 
 function openArticle(slug, options = {}) {
-  const article = articles.find((item) => item.slug === slug);
-  if (article) recordArticleView(article.id);
+  state.viewedArticleId = null;
   state.route = `article:${slug}`;
   render();
   safeScrollTop();
   if (options.updateHash !== false) updateLocationHash(routeHash(state.route));
+}
+
+async function shareArticle() {
+  try {
+    await navigator.clipboard.writeText(`${location.origin}/${routeHash(state.route)}`);
+    showToast("Story link copied.");
+  } catch { showToast("Could not copy the link. Share the address from your browser."); }
 }
 
 function navArticle(event, slug) {
@@ -1439,89 +1518,70 @@ function openSearch() {
   updateLocationHash(routeHash("archive"));
 }
 
-async function login(mode) {
-  const email = document.getElementById("email").value;
-  const normalizedEmail = normalizeEmail(email);
-  const firstNameInput = document.getElementById("firstName")?.value.trim();
-  const existing = state.accounts.find((account) => normalizeEmail(account.email) === normalizedEmail);
-  if (mode === "signup" && existing) {
-    mode = "login";
-  }
-  const firstName = firstNameInput || existing?.name || normalizedEmail.split("@")[0];
-  state.user = {
-    name: firstName,
-    email: normalizedEmail,
-    subscription: existing?.subscription || state.user?.subscription || "free",
-    plan: existing?.plan || state.user?.plan || (existing?.subscription === "active" ? "monthly" : "free"),
-    accountType: existing?.accountType || state.user?.accountType || (existing?.subscription === "active" ? "paid" : "free"),
-    stripeCustomerId: existing?.stripeCustomerId || state.user?.stripeCustomerId,
-    stripeSubscriptionId: existing?.stripeSubscriptionId || state.user?.stripeSubscriptionId,
-    cancelAtPeriodEnd: Boolean(existing?.cancelAtPeriodEnd || state.user?.cancelAtPeriodEnd),
-    currentPeriodEnd: existing?.currentPeriodEnd || state.user?.currentPeriodEnd,
-  };
-  state.adminVerified = false;
-  upsertAccount(state.user);
-  state.modal = null;
-  if (!state.pendingSubscriptionPlan) state.route = "account";
-  saveState();
+function updateSearch(input) {
+  const position = input.selectionStart;
+  state.query = input.value;
   render();
-  showToast(mode === "signup" ? `Welcome, ${displayName()}.` : `Welcome back, ${displayName()}.`);
+  const replacement = document.getElementById("archiveSearch");
+  replacement?.focus();
+  replacement?.setSelectionRange(position, position);
+}
+
+async function login(mode) {
+  if (state.loggingIn) return;
+  const normalizedEmail = normalizeEmail(document.getElementById("email").value);
+  const firstName = document.getElementById("firstName")?.value.trim();
+  state.loggingIn = true;
+  const button = document.querySelector(".modal-card button[type=submit]");
+  if (button) button.disabled = true;
   try {
     const response = await fetch(`${functionBase}/members`, {
       method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ ...state.user, mode }),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: normalizedEmail, name: firstName, mode }),
     });
-    if (response.status === 409) {
-      const data = await response.json();
-      if (data.member) {
-        mergeMemberIntoCurrentUser(data.member);
-        upsertAccount(data.member);
-        state.modal = null;
-        if (!state.pendingSubscriptionPlan) state.route = "account";
-        saveState();
-        render();
-      } else {
-        showToast(data.error || "An account already exists for this email. Please log in instead.");
-        state.user = null;
-        state.accounts = state.accounts.filter((account) => normalizeEmail(account.email) !== normalizedEmail);
-        state.modal = "auth";
-        state.authTab = "login";
-        state.route = "home";
-        saveState();
-        render();
-      }
-      return;
-    }
-    if (response.ok) {
-      const data = await response.json();
-      if (data.member) {
-        mergeMemberIntoCurrentUser(data.member);
-        upsertAccount(data.member);
-        saveState();
-        render();
-      }
+    const data = await response.json();
+    if (!response.ok || !data.member) throw new Error(data.error || "Sign-in failed. Please try again.");
+    state.user = data.member;
+    state.accounts = [data.member];
+    state.adminVerified = false;
+    state.articleErrors = {};
+    articles = articles.map(({ bodyHtml, locked, ...article }) => article);
+    state.modal = null;
+    saveState();
+    await refreshAdminStatus();
+    await loadRemoteArticles();
+    routeTo("account");
+    showToast(`Welcome, ${displayName()}.`);
+    if (state.pendingSubscriptionPlan) {
+      const plan = state.pendingSubscriptionPlan;
+      state.pendingSubscriptionPlan = null;
+      await subscribe(plan);
     }
   } catch (error) {
-    // Member persistence is optional for plain static previews.
-  }
-  refreshAdminStatus();
-  if (state.pendingSubscriptionPlan) {
-    const plan = state.pendingSubscriptionPlan;
-    state.pendingSubscriptionPlan = null;
-    setTimeout(() => subscribe(plan), 0);
+    showToast(error.message || "Sign-in is temporarily unavailable.");
+  } finally {
+    state.loggingIn = false;
+    if (button) button.disabled = false;
   }
 }
-
 function logout() {
   state.user = null;
   state.adminVerified = false;
+  state.accounts = [];
+  state.membersLoaded = false;
+  state.pendingSubscriptionPlan = null;
+  state.articleErrors = {};
+  articles = articles.filter((article) => HocoAccess.visible(article)).map(({ bodyHtml, locked, ...article }) => article);
   saveState();
-  render();
+  routeTo("home");
+  loadRemoteArticles();
   showToast("Logged out.");
 }
 
 async function subscribe(plan) {
+  if (isSubscriber()) { routeTo("account"); showToast("You already have paid access. Manage your subscription from your account."); return; }
+  if (state.startingCheckout) return;
   if (!state.user?.email) {
     state.pendingSubscriptionPlan = plan;
     state.modal = "auth";
@@ -1530,6 +1590,7 @@ async function subscribe(plan) {
     showToast("Create an account before subscribing.");
     return;
   }
+  state.startingCheckout = true;
   try {
     const response = await fetch("/.netlify/functions/stripe-create-checkout-session", {
       method: "POST",
@@ -1537,13 +1598,15 @@ async function subscribe(plan) {
       body: JSON.stringify({ plan, email: state.user.email }),
     });
     const data = await response.json();
-    if (data.url) {
+    if (response.ok && data.url) {
       location.href = data.url;
       return;
     }
     showToast(data.error || "Stripe checkout is not configured yet.");
   } catch (error) {
     showToast("Stripe checkout is unavailable. Run with Netlify Functions or check Netlify setup.");
+  } finally {
+    state.startingCheckout = false;
   }
 }
 
@@ -1630,11 +1693,15 @@ window.addEventListener("scroll", () => {
 });
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], [data-sport], [data-article], [data-action]");
+  const target = event.target.closest("[data-route], [data-sport], [data-article], [data-action], [data-retry-article]");
   if (!target) return;
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
   const action = target.dataset.action;
   event.preventDefault();
-  if (target.dataset.route) {
+  if (target.dataset.retryArticle) {
+    delete state.articleErrors[target.dataset.retryArticle];
+    loadFullArticle(target.dataset.retryArticle);
+  } else if (target.dataset.route) {
     routeTo(target.dataset.route);
   } else if (target.dataset.sport) {
     setSport(target.dataset.sport);
@@ -1648,13 +1715,19 @@ document.addEventListener("click", (event) => {
 });
 
 window.addEventListener("hashchange", applyHashRoute);
+window.addEventListener("focus", () => { if (!state.modal && state.route !== "admin") syncMember(); });
 
 setInterval(() => {
   if (state.route !== "home" || state.modal) return;
   const heroes = heroArticles();
   if (heroes.length < 2) return;
   state.heroIndex = (state.heroIndex + 1) % heroes.length;
-  render();
+  const hero = document.querySelector(".hero");
+  if (!hero) return;
+  const template = document.createElement("template");
+  template.innerHTML = homePage();
+  const nextHero = template.content.querySelector(".hero");
+  if (nextHero) hero.replaceWith(nextHero);
 }, 10000);
 
 const checkoutParams = new URLSearchParams(location.search);

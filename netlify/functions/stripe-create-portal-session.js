@@ -5,10 +5,10 @@ const { required, siteUrl } = require("./_config");
 const { rateLimit } = require("./_rate-limit");
 const { json, safeError } = require("./_security");
 
-exports.handler = async (event, context) => {
+exports.handler = require("./_security").withErrorHandling(async (event, context) => {
   connectLambda(event);
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method not allowed" };
+    return json(405, { error: "Method not allowed" });
   }
 
   const limited = rateLimit(event, { key: "stripe:portal", limit: 10, windowMs: 60_000 });
@@ -47,4 +47,4 @@ exports.handler = async (event, context) => {
   } catch (error) {
     return json(error.statusCode || 500, safeError("Billing portal is unavailable."));
   }
-};
+});

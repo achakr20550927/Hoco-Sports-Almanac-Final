@@ -2,6 +2,7 @@ const Stripe = require("stripe");
 const { connectLambda, getStore } = require("@netlify/blobs");
 const { webhookConfig } = require("./_config");
 const { json, logSafe, safeError } = require("./_security");
+const { periodEnd, planOf, subscriptionId: invoiceSubscriptionId } = require("./_stripe-subscription");
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -18,8 +19,9 @@ function normalizePlan(plan, subscription = "free") {
 }
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
   connectLambda(event);
-  const signature = event.headers["stripe-signature"];
+  const signature = event.headers?.["stripe-signature"];
   if (!signature) return json(400, { error: "Missing Stripe signature" });
 
   let stripeEvent;
@@ -57,17 +59,20 @@ exports.handler = async (event) => {
 };
 
 async function handleStripeEvent(stripe, stripeEvent) {
-  const members = getStore("members");
+  const members = getStore({ name: "members", consistency: "strong" });
   const raw = (await members.get("accounts", { type: "json" })) || [];
 
   const upsert = async (email, patch) => {
     if (!email) return;
     const normalized = normalizeEmail(email);
-    const existing = raw.find((member) => member.email === normalized);
+    const existing = raw.find((member) => normalizeEmail(member.email) === normalized);
+    if (existing?.stripeSubscriptionId && patch.stripeSubscriptionId && existing.stripeSubscriptionId !== patch.stripeSubscriptionId && patch.subscription !== "active") return;
+    if (existing?.lastStripeEventAt > stripeEvent.created) return;
     const subscriptionStatus = patch.subscription || existing?.subscription || "free";
     const isAdmin = existing?.accountType === "admin";
     const has = (key) => Object.prototype.hasOwnProperty.call(patch, key);
     const nextMember = {
+      ...existing,
       name: existing?.name || normalized.split("@")[0],
       email: normalized,
       plan: normalizePlan(patch.plan || existing?.plan, subscriptionStatus),
@@ -79,15 +84,17 @@ async function handleStripeEvent(stripe, stripeEvent) {
       currentPeriodEnd: has("currentPeriodEnd") ? patch.currentPeriodEnd : existing?.currentPeriodEnd,
       signedUpAt: existing?.signedUpAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      lastStripeEventAt: stripeEvent.created,
     };
-    const next = [nextMember, ...raw.filter((member) => member.email !== normalized)];
+    const next = [nextMember, ...raw.filter((member) => normalizeEmail(member.email) !== normalized)];
     await members.setJSON("accounts", next);
   };
 
-  if (stripeEvent.type === "checkout.session.completed") {
+  if (["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(stripeEvent.type)) {
     const session = stripeEvent.data.object;
-    const email = session.customer_details?.email || session.customer_email || session.metadata?.email || session.client_reference_id;
+    const email = session.metadata?.email || session.client_reference_id || session.customer_email || session.customer_details?.email;
     if (session.mode !== "subscription" || !session.customer) return;
+    if (!["paid", "no_payment_required"].includes(session.payment_status)) return;
     const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
     const patch = {
       plan: session.metadata?.plan,
@@ -98,63 +105,68 @@ async function handleStripeEvent(stripe, stripeEvent) {
     };
     if (subscriptionId) {
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      patch.plan = patch.plan || subscription.metadata?.plan;
+      patch.plan = planOf(subscription, patch.plan);
+      patch.subscription = ["active", "trialing"].includes(subscription.status) ? "active" : subscription.status;
       patch.cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
-      patch.currentPeriodEnd = timestampToIso(subscription.current_period_end);
+      patch.currentPeriodEnd = periodEnd(subscription);
     }
     await upsert(email, patch);
   }
 
-  if (stripeEvent.type === "customer.subscription.updated") {
+  if (["customer.subscription.created", "customer.subscription.updated"].includes(stripeEvent.type)) {
     const subscription = stripeEvent.data.object;
     const customer = await stripe.customers.retrieve(subscription.customer);
-    await upsert(customer.email || subscription.metadata?.email, {
+    await upsert(subscription.metadata?.email || raw.find((member) => member.stripeCustomerId === customer.id)?.email || customer.email, {
       subscription: ["active", "trialing"].includes(subscription.status) ? "active" : subscription.status,
-      plan: subscription.metadata?.plan,
+      plan: ["active", "trialing"].includes(subscription.status) ? planOf(subscription) : "free",
       stripeCustomerId: customer.id,
       stripeSubscriptionId: subscription.id,
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
-      currentPeriodEnd: timestampToIso(subscription.current_period_end),
+      currentPeriodEnd: periodEnd(subscription),
     });
   }
 
   if (stripeEvent.type === "customer.subscription.deleted") {
     const subscription = stripeEvent.data.object;
     const customer = await stripe.customers.retrieve(subscription.customer);
-    await upsert(customer.email || subscription.metadata?.email, {
+    await upsert(subscription.metadata?.email || raw.find((member) => member.stripeCustomerId === customer.id)?.email || customer.email, {
       subscription: "cancelled",
       plan: "free",
       stripeCustomerId: customer.id,
       stripeSubscriptionId: subscription.id,
       cancelAtPeriodEnd: false,
-      currentPeriodEnd: timestampToIso(subscription.current_period_end),
+      currentPeriodEnd: periodEnd(subscription),
     });
   }
 
   if (stripeEvent.type === "invoice.payment_failed") {
     const invoice = stripeEvent.data.object;
+    if (!invoiceSubscriptionId(invoice)) return;
     const customer = await stripe.customers.retrieve(invoice.customer);
     await upsert(customer.email, {
       subscription: "past_due",
       plan: "free",
       stripeCustomerId: customer.id,
+      stripeSubscriptionId: invoiceSubscriptionId(invoice),
     });
   }
 
-  if (stripeEvent.type === "invoice.payment_succeeded") {
+  if (["invoice.payment_succeeded", "invoice.paid"].includes(stripeEvent.type)) {
     const invoice = stripeEvent.data.object;
     const customer = await stripe.customers.retrieve(invoice.customer);
-    let plan = invoice.subscription_details?.metadata?.plan;
-    let subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
+    let plan = invoice.subscription_details?.metadata?.plan || invoice.parent?.subscription_details?.metadata?.plan;
+    let subscriptionId = invoiceSubscriptionId(invoice);
+    if (!subscriptionId) return;
     let currentPeriodEnd;
     let cancelAtPeriodEnd = false;
     if (subscriptionId) {
       const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-      plan = plan || subscription.metadata?.plan;
-      currentPeriodEnd = timestampToIso(subscription.current_period_end);
+      if (!["active", "trialing"].includes(subscription.status)) return;
+      plan = planOf(subscription, plan);
+      currentPeriodEnd = periodEnd(subscription);
       cancelAtPeriodEnd = Boolean(subscription.cancel_at_period_end);
     }
-    await upsert(customer.email, {
+    await upsert(raw.find((member) => member.stripeCustomerId === customer.id)?.email || customer.email, {
       subscription: "active",
       plan,
       stripeCustomerId: customer.id,

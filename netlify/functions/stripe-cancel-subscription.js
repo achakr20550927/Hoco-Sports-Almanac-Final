@@ -4,6 +4,7 @@ const { getUserEmail } = require("./_admin");
 const { required } = require("./_config");
 const { rateLimit } = require("./_rate-limit");
 const { json, safeError } = require("./_security");
+const { periodEnd } = require("./_stripe-subscription");
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -16,6 +17,7 @@ function timestampToIso(timestamp) {
 function publicMember(member) {
   return {
     name: member.name,
+    plan: member.plan,
     email: member.email,
     subscription: member.subscription || "free",
     accountType: member.accountType || (member.subscription === "active" ? "paid" : "free"),
@@ -28,7 +30,7 @@ function publicMember(member) {
   };
 }
 
-exports.handler = async (event, context) => {
+exports.handler = require("./_security").withErrorHandling(async (event, context) => {
   connectLambda(event);
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
@@ -41,7 +43,7 @@ exports.handler = async (event, context) => {
   const email = normalizeEmail(getUserEmail(event, context) || body.email);
   if (!email) return json(401, { error: "Log in before cancelling a subscription." });
 
-  const store = getStore("members");
+  const store = getStore({ name: "members", consistency: "strong" });
   const accounts = (await store.get("accounts", { type: "json" })) || [];
   const existing = accounts.find((account) => normalizeEmail(account.email) === email);
 
@@ -78,7 +80,7 @@ exports.handler = async (event, context) => {
       accountType: existing.accountType === "admin" ? "admin" : "paid",
       stripeSubscriptionId: updated.id,
       cancelAtPeriodEnd: true,
-      currentPeriodEnd: timestampToIso(updated.current_period_end),
+      currentPeriodEnd: periodEnd(updated),
       updatedAt: new Date().toISOString(),
     };
 
@@ -87,4 +89,4 @@ exports.handler = async (event, context) => {
   } catch (error) {
     return json(error.statusCode || 500, safeError("Subscription could not be cancelled."));
   }
-};
+});

@@ -37,4 +37,14 @@ function logSafe(eventName, details = {}) {
   console.log(JSON.stringify({ event: eventName, ...safeDetails }));
 }
 
-module.exports = { json, logSafe, redact, requestId, safeError };
+function withErrorHandling(handler) {
+  return async (event, context) => {
+    try { return await handler(event, context); }
+    catch (error) {
+      logSafe("request.error", { message: error.message });
+      return json(error instanceof SyntaxError ? 400 : 503, { error: error instanceof SyntaxError ? "Invalid request. Please try again." : "Service temporarily unavailable. Please try again." });
+    }
+  };
+}
+
+module.exports = { json, logSafe, redact, requestId, safeError, withErrorHandling };

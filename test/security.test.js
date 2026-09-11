@@ -87,7 +87,7 @@ test("article summaries omit full body and oversized data images", () => {
   });
 
   assert.equal(summary.bodyHtml, undefined);
-  assert.equal(summary.image, "");
+  assert.match(summary.image, /articles\?id=story-1&image=1/);
   assert.equal(summary.hasFullImage, true);
   assert.equal(summary.hasFullBody, true);
 });

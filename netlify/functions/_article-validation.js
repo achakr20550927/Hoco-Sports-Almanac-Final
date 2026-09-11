@@ -42,8 +42,10 @@ function cleanUrl(value) {
     const url = new URL(raw);
     if (!["https:", "http:", "data:"].includes(url.protocol)) return "";
     if (url.protocol === "data:" && !raw.startsWith("data:image/")) return "";
-    return raw.slice(0, url.protocol === "data:" ? 750000 : 2500);
-  } catch {
+    if (raw.length > (url.protocol === "data:" ? 750000 : 2500)) throw Object.assign(new Error("Image is too large. Upload a smaller image."), { statusCode: 400 });
+    return raw;
+  } catch (error) {
+    if (error.statusCode) throw error;
     return "";
   }
 }
@@ -73,6 +75,8 @@ function cleanBody(html) {
 }
 
 function normalizeArticle(input = {}, existing = null) {
+  input = { ...existing, ...input };
+  if (String(input.bodyHtml || "").length > 2_000_000) throw Object.assign(new Error("Article is too large. Reduce the number or size of inline images."), { statusCode: 400 });
   const title = cleanText(input.title, 180);
   if (!title) throw Object.assign(new Error("Title is required."), { statusCode: 400 });
   const sport = SPORTS.has(input.sport) ? input.sport : "football";

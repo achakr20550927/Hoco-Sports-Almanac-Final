@@ -34,7 +34,7 @@ function publicMember(member) {
 
 async function handle(event, context) {
   connectLambda(event);
-  const store = getStore({ name: "members", consistency: "strong" });
+  const store = getStore("members");
   const members = (await store.get("accounts", { type: "json" })) || [];
 
   if (event.httpMethod === "GET") {

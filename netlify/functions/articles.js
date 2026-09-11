@@ -22,9 +22,9 @@ function summaryArticle(article, views = {}) {
 
 async function handle(event, context) {
   connectLambda(event);
-  const store = getStore({ name: "articles", consistency: "strong" });
-  const viewStore = getStore({ name: "article-views", consistency: "strong" });
-  const mediaStore = getStore({ name: "article-media", consistency: "strong" });
+  const store = getStore("articles");
+  const viewStore = getStore("article-views");
+  const mediaStore = getStore("article-media");
 
   if (event.httpMethod === "GET") {
     const admin = requireAdmin(event, context).ok;
@@ -49,7 +49,7 @@ async function handle(event, context) {
         return response;
       }
       const email = getUserEmail(event, context);
-      const members = email ? (await getStore({ name: "members", consistency: "strong" }).get("accounts", { type: "json" })) || [] : [];
+      const members = email ? (await getStore("members").get("accounts", { type: "json" })) || [] : [];
       const member = members.find((item) => String(item.email).trim().toLowerCase() === email);
       if (!allowed(article, member, admin)) return json(403, { error: "This story requires a membership.", article: summaryArticle(article, views), locked: true });
       return json(200, { article: withViews(article, views) }, { "cache-control": "no-store" });

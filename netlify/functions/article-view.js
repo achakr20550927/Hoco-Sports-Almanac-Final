@@ -19,7 +19,7 @@ exports.handler = require("./_security").withErrorHandling(async (event) => {
   const articleId = cleanId(id);
   if (!articleId) return json(400, { error: "Article id is required" });
 
-  const store = getStore({ name: "article-views", consistency: "strong" });
+  const store = getStore("article-views");
   const views = (await store.get("counts", { type: "json" })) || {};
   const count = Number(views[articleId] || 0) + 1;
   views[articleId] = count;

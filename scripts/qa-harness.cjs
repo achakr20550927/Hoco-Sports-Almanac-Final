@@ -26,6 +26,8 @@ function harness(initial = {}, stripeOverrides = {}) {
   const blobs = {
     connectLambda() {},
     getStore(options) {
+      // connectLambda in the deployed Blobs SDK provides no uncachedEdgeURL.
+      if (options?.consistency === "strong") throw new Error("Legacy Lambda context does not support strong Blobs reads");
       const name = typeof options === "string" ? options : options.name;
       data[name] ||= {};
       return {

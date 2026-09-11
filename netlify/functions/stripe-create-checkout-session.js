@@ -36,7 +36,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
 
   try {
     connectLambda(event);
-    const members = (await getStore({ name: "members", consistency: "strong" }).get("accounts", { type: "json" })) || [];
+    const members = (await getStore("members").get("accounts", { type: "json" })) || [];
     const member = members.find((item) => String(item.email).trim().toLowerCase() === normalizedEmail);
     if (!member) return json(401, { error: "Create your account before subscribing." });
     if (paid(member)) return json(409, { error: "You already have paid access. Manage billing from your account." });

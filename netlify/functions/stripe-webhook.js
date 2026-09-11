@@ -59,7 +59,7 @@ exports.handler = async (event) => {
 };
 
 async function handleStripeEvent(stripe, stripeEvent) {
-  const members = getStore({ name: "members", consistency: "strong" });
+  const members = getStore("members");
   const raw = (await members.get("accounts", { type: "json" })) || [];
 
   const upsert = async (email, patch) => {

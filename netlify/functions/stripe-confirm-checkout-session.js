@@ -65,7 +65,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
     const subscriptionId = typeof subscription === "string" ? subscription : subscription?.id;
     if (!["active", "trialing"].includes(subscription?.status)) return json(409, { error: "This subscription is not currently active. Refresh your account." });
     const plan = planOf(subscription, session.metadata?.plan);
-    const store = getStore({ name: "members", consistency: "strong" });
+    const store = getStore("members");
     const members = (await store.get("accounts", { type: "json" })) || [];
     const existing = members.find((member) => normalizeEmail(member.email) === normalizedEmail);
     const nextMember = {

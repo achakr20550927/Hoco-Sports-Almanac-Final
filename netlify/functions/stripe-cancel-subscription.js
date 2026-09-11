@@ -43,7 +43,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
   const email = normalizeEmail(getUserEmail(event, context) || body.email);
   if (!email) return json(401, { error: "Log in before cancelling a subscription." });
 
-  const store = getStore({ name: "members", consistency: "strong" });
+  const store = getStore("members");
   const accounts = (await store.get("accounts", { type: "json" })) || [];
   const existing = accounts.find((account) => normalizeEmail(account.email) === email);
 

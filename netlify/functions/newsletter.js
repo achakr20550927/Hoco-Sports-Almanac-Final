@@ -6,7 +6,7 @@ const { json, withErrorHandling } = require("./_security");
 
 exports.handler = withErrorHandling(async (event, context) => {
   connectLambda(event);
-  const store = getStore({ name: "newsletter", consistency: "strong" });
+  const store = getStore("newsletter");
   if (event.httpMethod === "GET") {
     const admin = requireAdmin(event, context);
     if (!admin.ok) return admin.response;

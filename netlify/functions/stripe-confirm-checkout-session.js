@@ -45,7 +45,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
   if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
 
   const { sessionId, email } = JSON.parse(event.body || "{}");
-  const normalizedEmail = normalizeEmail(getUserEmail(event, context) || email);
+  const normalizedEmail = normalizeEmail(await getUserEmail(event, context));
   if (!normalizedEmail || !sessionId) return json(400, { error: "Checkout session and email are required." });
 
   try {

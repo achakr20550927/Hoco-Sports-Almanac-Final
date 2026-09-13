@@ -3,9 +3,9 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { harness, fixtures } = require("./qa-harness.cjs");
-const app = harness(fixtures());
+const app = harness(fixtures(), {}, { env: { AUTH_MODE: process.env.QA_AUTH_MODE || "legacy" } });
 const root = path.resolve(__dirname, "..");
-const allowed = new Set(["/", "/index.html", "/app.js", "/access-policy.js", "/styles.css"]);
+const allowed = new Set(["/", "/index.html", "/app.js", "/access-policy.js", "/auth.bundle.js", "/styles.css"]);
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost:4175");

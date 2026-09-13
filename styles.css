@@ -1224,3 +1224,6 @@ button {
     font-size: 11px;
   }
 }
+:root .password-panel { max-width: 480px; margin: 28px 0; padding: 24px 0; border-top: 1px solid #dce2e8; }
+:root .password-panel h2 { font-size: 24px; margin-bottom: 16px; }
+:root .password-panel .form-stack { width: 100%; }

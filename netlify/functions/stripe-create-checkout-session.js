@@ -24,7 +24,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
   if (limited.limited) return json(429, { error: "Too many checkout attempts" }, { "retry-after": String(limited.retryAfter) });
 
   const { plan = "monthly", email } = JSON.parse(event.body || "{}");
-  const normalizedEmail = getUserEmail(event, context);
+  const normalizedEmail = await getUserEmail(event, context);
   if (!normalizedEmail) {
     return json(401, { error: "Create or log into an account before subscribing." });
   }

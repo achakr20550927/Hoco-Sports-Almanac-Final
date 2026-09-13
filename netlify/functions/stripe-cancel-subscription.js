@@ -40,7 +40,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
   if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
 
   const body = JSON.parse(event.body || "{}");
-  const email = normalizeEmail(getUserEmail(event, context) || body.email);
+  const email = normalizeEmail(await getUserEmail(event, context));
   if (!email) return json(401, { error: "Log in before cancelling a subscription." });
 
   const store = getStore("members");

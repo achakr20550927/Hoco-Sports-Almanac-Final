@@ -8,3 +8,5 @@ tmp/
 *.bak
 HC-Almanac-main/
 /QA-2026-09-10.md
+/auth.bundle.js
+/auth.bundle.js.LEGAL.txt

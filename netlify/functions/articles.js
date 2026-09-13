@@ -27,7 +27,7 @@ async function handle(event, context) {
   const mediaStore = getStore("article-media");
 
   if (event.httpMethod === "GET") {
-    const admin = requireAdmin(event, context).ok;
+    const admin = (await requireAdmin(event, context)).ok;
     const imageId = event.queryStringParameters?.image === "1" && event.queryStringParameters?.id;
     if (imageId) {
       const cached = await mediaStore.get(imageId, { type: "json" });
@@ -48,7 +48,7 @@ async function handle(event, context) {
         await mediaStore.setJSON(article.id, { access: article.access, status: article.status, revision: article.updatedAt || "1", response });
         return response;
       }
-      const email = getUserEmail(event, context);
+      const email = await getUserEmail(event, context);
       const members = email ? (await getStore("members").get("accounts", { type: "json" })) || [] : [];
       const member = members.find((item) => String(item.email).trim().toLowerCase() === email);
       if (!allowed(article, member, admin)) return json(403, { error: "This story requires a membership.", article: summaryArticle(article, views), locked: true });
@@ -60,7 +60,7 @@ async function handle(event, context) {
   const limited = rateLimit(event, { key: "articles:mutate", limit: 30, windowMs: 60_000 });
   if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
 
-  const admin = requireAdmin(event, context);
+  const admin = await requireAdmin(event, context);
   if (!admin.ok) return admin.response;
   const views = (await viewStore.get("counts", { type: "json" })) || {};
 

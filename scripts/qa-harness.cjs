@@ -4,7 +4,7 @@ const vm = require("node:vm");
 const { createRequire } = require("node:module");
 const Stripe = require("stripe");
 
-function harness(initial = {}, stripeOverrides = {}) {
+function harness(initial = {}, stripeOverrides = {}, authOptions = {}) {
   const data = structuredClone(initial);
   const calls = [];
   const cache = new Map();
@@ -45,9 +45,13 @@ function harness(initial = {}, stripeOverrides = {}) {
     cache.set(absolute, module);
     const requireFrom = createRequire(absolute);
     const sandbox = {
-      module, exports: module.exports, Buffer, URL, Intl, Date, JSON, SyntaxError, setTimeout, clearTimeout,
+      module, exports: module.exports, Buffer, URL, Intl, Date, JSON, SyntaxError, setTimeout, clearTimeout, AbortSignal,
+      fetch: authOptions.fetch || (async (url, options) => {
+        const token = options.headers?.authorization?.slice(7);
+        return { ok: Boolean(authOptions.users?.[token]), json: async () => authOptions.users?.[token] };
+      }),
       console: { log() {}, error() {} },
-      process: { env: { ADMIN_EMAILS: "owner@example.test", STRIPE_SECRET_KEY: "sk_test_fixture", STRIPE_WEBHOOK_SECRET: "whsec_fixture", STRIPE_MONTHLY_PRICE_ID: "6.95", STRIPE_ANNUAL_PRICE_ID: "24.95", URL: "http://localhost:4175" } },
+      process: { env: { ADMIN_EMAILS: "owner@example.test", STRIPE_SECRET_KEY: "sk_test_fixture", STRIPE_WEBHOOK_SECRET: "whsec_fixture", STRIPE_MONTHLY_PRICE_ID: "6.95", STRIPE_ANNUAL_PRICE_ID: "24.95", URL: "http://localhost:4175", ...authOptions.env } },
       require(name) {
         if (name === "@netlify/blobs") return blobs;
         if (name === "stripe") return function () { return stripe; };
@@ -58,8 +62,8 @@ function harness(initial = {}, stripeOverrides = {}) {
     vm.runInNewContext(fs.readFileSync(absolute, "utf8"), sandbox, { filename: absolute });
     return module.exports;
   }
-  async function request(name, method = "GET", body, email, query = {}) {
-    const event = { httpMethod: method, headers: email ? { "x-user-email": email } : {}, queryStringParameters: query, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) };
+  async function request(name, method = "GET", body, email, query = {}, headers = {}) {
+    const event = { httpMethod: method, headers: { ...(email ? { "x-user-email": email } : {}), ...headers }, queryStringParameters: query, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) };
     const response = await load(`${name}.js`).handler(event, {});
     return { ...response, json: response.isBase64Encoded ? null : JSON.parse(response.body) };
   }

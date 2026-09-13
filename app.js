@@ -287,16 +287,18 @@ function localStoredArticles() {
   return Array.isArray(stored) ? stored.filter((article) => article.custom && article.bodyHtml) : [];
 }
 
-function authHeaders() {
+async function authHeaders() {
   const headers = { "content-type": "application/json" };
-  if (state.user?.email) headers["x-user-email"] = state.user.email;
+  if (state.authError) return headers;
+  if (window.HocoAuth) Object.assign(headers, await window.HocoAuth.headers());
+  if (!headers.authorization && !state.secureSession && state.authMode !== "identity" && state.user?.email) headers["x-user-email"] = state.user.email;
   return headers;
 }
 
 async function loadRemoteArticles() {
   const requestedEmail = state.user?.email;
   try {
-    const response = await fetch(`${functionBase}/articles?t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
+    const response = await fetch(`${functionBase}/articles?t=${Date.now()}`, { cache: "no-store", headers: await authHeaders() });
     if (!response.ok) throw new Error("Stories are temporarily unavailable.");
     const data = await response.json();
     if (state.user?.email !== requestedEmail) return;
@@ -317,7 +319,7 @@ async function loadFullArticle(slug) {
   state.loadingArticleSlugs.add(slug);
   const requestedEmail = state.user?.email;
   try {
-    const response = await fetch(`${functionBase}/articles?slug=${encodeURIComponent(slug)}&t=${Date.now()}`, { cache: "no-store", headers: authHeaders() });
+    const response = await fetch(`${functionBase}/articles?slug=${encodeURIComponent(slug)}&t=${Date.now()}`, { cache: "no-store", headers: await authHeaders() });
     const data = await response.json();
     if (state.user?.email !== requestedEmail) return null;
     if (!response.ok) {
@@ -343,7 +345,7 @@ async function syncMember() {
   const requestedEmail = state.user.email;
   try {
     const response = await fetch(`${functionBase}/members?email=${encodeURIComponent(state.user.email)}`, {
-      headers: authHeaders(),
+      headers: await authHeaders(),
     });
     if (!response.ok) return;
     const data = await response.json();
@@ -372,7 +374,7 @@ async function refreshAdminStatus() {
   const requestedEmail = state.user.email;
   try {
     const response = await fetch(`${functionBase}/admin-status`, {
-      headers: authHeaders(),
+      headers: await authHeaders(),
     });
     if (!response.ok) return;
     const data = await response.json();
@@ -398,7 +400,7 @@ async function loadAdminMembers() {
   state.loadingMembers = true;
   try {
     const response = await fetch(`${functionBase}/members?list=all`, {
-      headers: authHeaders(),
+      headers: await authHeaders(),
     });
     if (!response.ok) throw new Error("Members could not be refreshed.");
     const data = await response.json();
@@ -978,6 +980,7 @@ function accountPage() {
         <div class="stat-card"><span class="eyebrow">Free Reads</span><strong>${readsRemaining()}</strong></div>
       </div>
       ${cancellationNotice}
+      ${passwordPanel()}
       <p><button type="button" class="btn" ${canManageSubscription ? `onclick="manageBilling()"` : `data-route="subscribe"`}>${canManageSubscription ? "Manage Billing" : "Subscribe"}</button> ${showCancelSubscription ? `<button type="button" class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>` : ""} ${isAdmin() ? `<button type="button" class="btn-secondary" data-route="admin">Admin Dashboard</button>` : ""} <button type="button" class="btn-secondary" onclick="logout()">Log Out</button></p>
     </main>
     ${footer()}
@@ -1073,7 +1076,8 @@ function adminPanel() {
     if (!state.membersLoaded) setTimeout(loadAdminMembers, 0);
     const paidMembers = state.accounts.filter((account) => account.subscription === "active");
     const adminMembers = state.accounts.filter((account) => isAdmin(account));
-    return `<div class="section-heading"><h2>Members and Emails</h2><div><button class="btn-secondary" onclick="loadAdminMembers()">Refresh Members</button> <button class="btn-secondary" onclick="exportAccountsCsv()">Export CSV</button></div></div>
+    return `<div class="section-heading"><h2>Members and Emails</h2><div><button class="btn-secondary" onclick="loadAdminMembers()">Refresh Members</button> <button class="btn-secondary" onclick="exportAccountsCsv()">Export CSV</button> <button class="btn-secondary" onclick="showMemberBackup()">Backup Records</button></div></div>
+      ${state.memberBackup ? `<details open><summary>Private Membership Backup</summary><pre id="memberBackup" style="max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(JSON.stringify(state.memberBackup, null, 2))}</pre></details>` : ""}
       <div class="stats-grid"><div class="stat-card"><span class="eyebrow">Paid Members</span><strong>${paidMembers.length}</strong></div><div class="stat-card"><span class="eyebrow">Signed Up Emails</span><strong>${state.accounts.length}</strong></div><div class="stat-card"><span class="eyebrow">Admins</span><strong>${adminMembers.length}</strong></div></div>
       <p class="meta">${state.membersLoaded ? "Showing shared Netlify member records." : "Loading shared members. Local fallback may include only this browser's accounts."}</p>
       <div class="table-wrap" style="margin-top:22px"><table class="data-table"><thead><tr><th>Name</th><th>Email</th><th>Account Type</th><th>Plan</th><th>Subscription</th><th>Signed Up</th></tr></thead><tbody>${state.accounts.map((account) => {
@@ -1156,7 +1160,7 @@ async function publishArticle() {
   try {
     const response = await fetch(`${functionBase}/articles`, {
       method: wasEditing ? "PUT" : "POST",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify(article),
       credentials: "same-origin",
     });
@@ -1189,7 +1193,7 @@ async function syncLocalArticles() {
     for (const article of localOnly) {
       const response = await fetch(`${functionBase}/articles`, {
         method: "POST",
-        headers: authHeaders(),
+        headers: await authHeaders(),
         body: JSON.stringify(article),
         credentials: "same-origin",
       });
@@ -1243,7 +1247,7 @@ async function deleteArticle(id) {
   try {
     const response = await fetch(`${functionBase}/articles`, {
       method: "DELETE",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify({ id }),
       credentials: "same-origin",
     });
@@ -1308,7 +1312,7 @@ async function updateMemberPlan(email, plan) {
   try {
     const response = await fetch(`${functionBase}/members`, {
       method: "PATCH",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify({ email: normalizedEmail, plan }),
     });
     const data = await response.json();
@@ -1345,7 +1349,7 @@ async function joinNewsletter() {
 
 async function loadNewsletter() {
   try {
-    const response = await fetch(`${functionBase}/newsletter`, { headers: authHeaders() });
+    const response = await fetch(`${functionBase}/newsletter`, { headers: await authHeaders() });
     if (!response.ok) throw new Error("Newsletter signups could not be loaded.");
     state.newsletter = (await response.json()).subscribers || [];
     render();
@@ -1454,7 +1458,7 @@ function modal() {
         ${signup ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><input class="input" id="firstName" placeholder="First name" required><input class="input" placeholder="Last name"></div>` : ""}
         <input class="input" id="email" type="email" placeholder="Email" required />
         <input class="input" id="password" type="password" placeholder="Password" required />
-        ${signup ? `<label><input type="checkbox" checked> Join the email list</label>` : `<label><input type="checkbox"> Remember me</label>`}
+        ${state.authEnabled ? `<button type="button" class="btn-secondary" onclick="requestPasswordEmail('setup')">Set Up Existing Account</button><button type="button" class="btn-secondary" onclick="requestPasswordEmail('recover')">Forgot Password</button>` : ""}
         <button class="btn" type="submit">${signup ? "Create Account" : "Log In"}</button>
       </form>
     </section>
@@ -1535,6 +1539,22 @@ async function login(mode) {
   const button = document.querySelector(".modal-card button[type=submit]");
   if (button) button.disabled = true;
   try {
+    if (state.authError) throw new Error("Sign-in is temporarily unavailable. Reload the page to retry.");
+    if (state.authEnabled) {
+      const passwordInput = document.getElementById("password");
+      const password = passwordInput?.value || "";
+      if (mode === "signup" && password.length < 12) throw new Error("Use a password with at least 12 characters.");
+      const result = mode === "signup"
+        ? await window.HocoAuth.signUp(normalizedEmail, password, firstName || "")
+        : await window.HocoAuth.signIn(normalizedEmail, password);
+      if (passwordInput) passwordInput.value = "";
+      if (!result.session) {
+        showToast("Check your email to confirm your account. Existing members can also use Set Up Existing Account.");
+        return;
+      }
+      await completeSecureLogin(result.session);
+      return;
+    }
     const response = await fetch(`${functionBase}/members`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1565,7 +1585,12 @@ async function login(mode) {
     if (button) button.disabled = false;
   }
 }
-function logout() {
+function logout(skipRemote = false) {
+  state.authRevision = (state.authRevision || 0) + 1;
+  if (window.HocoAuth && !skipRemote) window.HocoAuth.signOut().catch(() => showToast("Sign-out could not finish. Please try again."));
+  state.secureSession = false;
+  state.legacyEmail = "";
+  state.memberBackup = null;
   state.user = null;
   state.adminVerified = false;
   state.accounts = [];
@@ -1577,6 +1602,101 @@ function logout() {
   routeTo("home");
   loadRemoteArticles();
   showToast("Logged out.");
+}
+
+function passwordPanel() {
+  if (!state.authEnabled) return "";
+  const email = state.user?.email || state.legacyEmail || "";
+  return `<section class="password-panel"><h2>${state.secureSession ? "Set Password" : "Secure Your Account"}</h2>
+    ${state.secureSession ? `<form class="form-stack" onsubmit="event.preventDefault(); saveAccountPassword()">
+      <label for="newPassword">New password</label><input class="input" type="password" id="newPassword" autocomplete="new-password" minlength="12" required>
+      <label for="confirmPassword">Confirm password</label><input class="input" type="password" id="confirmPassword" autocomplete="new-password" minlength="12" required>
+      <button class="btn" type="submit" ${state.passwordBusy ? "disabled" : ""}>Save Password</button>
+    </form>` : `<p>Your membership stays unchanged. Verify your email to set a password.</p><form class="form-stack" onsubmit="event.preventDefault(); requestPasswordEmail('setup')"><label for="setupEmail">Account email</label><input class="input" id="setupEmail" type="email" autocomplete="email" value="${escapeHtml(email)}" required><button class="btn" type="submit" ${state.passwordBusy ? "disabled" : ""}>Send Password Setup Link</button></form>`}
+    <p id="passwordStatus" role="status">${escapeHtml(state.passwordStatus || "")}</p></section>`;
+}
+
+async function requestPasswordEmail(kind) {
+  if (state.passwordBusy) return;
+  const email = normalizeEmail(document.getElementById("setupEmail")?.value || document.getElementById("email")?.value || state.user?.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast("Enter your account email first."); return; }
+  state.passwordBusy = true;
+  try {
+    if (kind === "recover") await window.HocoAuth.recover(email);
+    else await window.HocoAuth.sendSetup(email);
+    state.passwordStatus = "Check your inbox and spam folder for the secure link. Your membership has not changed.";
+    showToast(state.passwordStatus);
+  } catch (error) {
+    state.passwordStatus = "The email could not be sent. Please try again later or contact support. Your membership has not changed.";
+    showToast(state.passwordStatus);
+  } finally {
+    state.passwordBusy = false;
+    if (state.route === "account") render();
+  }
+}
+
+async function saveAccountPassword() {
+  if (state.passwordBusy || !state.secureSession) return;
+  const first = document.getElementById("newPassword");
+  const second = document.getElementById("confirmPassword");
+  if (!first || first.value.length < 12) { showToast("Use at least 12 characters."); return; }
+  if (first.value !== second?.value) { showToast("The passwords do not match."); return; }
+  state.passwordBusy = true;
+  try {
+    await window.HocoAuth.setPassword(first.value);
+    first.value = "";
+    second.value = "";
+    state.passwordStatus = "Password saved securely. Your membership has not changed.";
+    showToast(state.passwordStatus);
+  } catch (error) {
+    state.passwordStatus = "Password was not saved. Verify your email again or try a stronger password.";
+    showToast(state.passwordStatus);
+  } finally {
+    state.passwordBusy = false;
+    const status = document.getElementById("passwordStatus");
+    if (status) status.textContent = state.passwordStatus;
+  }
+}
+
+async function completeSecureLogin(session, navigate = true) {
+  if (!session?.user?.email) throw new Error("A verified login is required.");
+  const revision = state.authRevision = (state.authRevision || 0) + 1;
+  const response = await fetch(`${functionBase}/members`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ mode: "login", name: session.user.user_metadata?.full_name }),
+  });
+  const data = await response.json();
+  if (state.authRevision !== revision) return;
+  if (!response.ok || !data.member) throw new Error(data.error || "Membership could not be loaded.");
+  state.user = data.member;
+  state.secureSession = true;
+  state.legacyEmail = "";
+  state.accounts = [data.member];
+  state.adminVerified = false;
+  state.articleErrors = {};
+  articles = articles.map(({ bodyHtml, locked, ...article }) => article);
+  state.modal = null;
+  saveState();
+  await refreshAdminStatus();
+  if (state.authRevision !== revision) return;
+  await loadRemoteArticles();
+  if (state.authRevision !== revision) return;
+  if (navigate) routeTo("account");
+  if (state.pendingSubscriptionPlan) {
+    const plan = state.pendingSubscriptionPlan;
+    state.pendingSubscriptionPlan = null;
+    await subscribe(plan);
+  }
+}
+
+async function showMemberBackup() {
+  if (!isAdmin()) return;
+  try {
+    const response = await fetch(`${functionBase}/members?backup=1`, { headers: await authHeaders(), cache: "no-store" });
+    if (!response.ok) throw new Error("Backup could not be loaded.");
+    state.memberBackup = await response.json();
+    render();
+  } catch (error) { showToast("Backup could not be loaded. Please try again."); }
 }
 
 async function subscribe(plan) {
@@ -1594,7 +1714,7 @@ async function subscribe(plan) {
   try {
     const response = await fetch("/.netlify/functions/stripe-create-checkout-session", {
       method: "POST",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify({ plan, email: state.user.email }),
     });
     const data = await response.json();
@@ -1615,7 +1735,7 @@ async function confirmCheckoutSession(sessionId) {
   try {
     const response = await fetch("/.netlify/functions/stripe-confirm-checkout-session", {
       method: "POST",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify({ sessionId, email: state.user.email }),
     });
     const data = await response.json();
@@ -1643,7 +1763,7 @@ async function manageBilling() {
   try {
     const response = await fetch("/.netlify/functions/stripe-create-portal-session", {
       method: "POST",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify({ email: state.user.email }),
     });
     const data = await response.json();
@@ -1664,7 +1784,7 @@ async function cancelSubscription() {
   try {
     const response = await fetch("/.netlify/functions/stripe-cancel-subscription", {
       method: "POST",
-      headers: authHeaders(),
+      headers: await authHeaders(),
       body: JSON.stringify({ email: state.user.email }),
     });
     const data = await response.json();
@@ -1715,7 +1835,7 @@ document.addEventListener("click", (event) => {
 });
 
 window.addEventListener("hashchange", applyHashRoute);
-window.addEventListener("focus", () => { if (!state.modal && state.route !== "admin") syncMember(); });
+window.addEventListener("focus", () => { if (!state.modal && state.route !== "admin" && state.route !== "account") syncMember(); });
 
 setInterval(() => {
   if (state.route !== "home" || state.modal) return;
@@ -1730,20 +1850,54 @@ setInterval(() => {
   if (nextHero) hero.replaceWith(nextHero);
 }, 10000);
 
-const checkoutParams = new URLSearchParams(location.search);
-if (checkoutParams.get("checkout") === "success") {
-  const sessionId = checkoutParams.get("session_id");
-  if (state.user?.email) {
-    confirmCheckoutSession(sessionId).then((confirmed) => {
-      if (!confirmed) syncMember();
-    });
+async function startApplication() {
+  const params = new URLSearchParams(location.search);
+  state.authInitializing = true;
+  try {
+    if (window.HocoAuth) {
+      const { config, session, passwordSetup, callbackError } = await window.HocoAuth.init();
+      if (passwordSetup) params.set("password_setup", "1");
+      state.authMode = config.mode;
+      const pilotEnabled = params.get("auth_pilot") === "1" || Boolean(session) || passwordSetup || readStorage("hoco_identity_enabled", false);
+      state.authEnabled = config.enabled && (config.mode !== "pilot" || pilotEnabled);
+      if (state.authEnabled) writeStorage("hoco_identity_enabled", true);
+      if (callbackError) state.passwordStatus = "This link has expired or is invalid. Request a new password setup link below.";
+      window.HocoAuth.onChange((event, nextSession) => {
+        if (state.authInitializing || state.loggingIn || event === "USER_UPDATED") return;
+        if (event === "SIGNED_OUT") { logout(true); return; }
+        if (nextSession) completeSecureLogin(nextSession, event === "PASSWORD_RECOVERY").catch(() => showToast("Your membership could not be refreshed. Please try logging in again."));
+      });
+      if (session) await completeSecureLogin(session, false);
+      else if (config.mode === "identity") {
+        state.legacyEmail = state.user?.email || "";
+        state.user = null;
+        state.accounts = [];
+        state.adminVerified = false;
+        saveState();
+      }
+    }
+    if (params.get("password_setup") === "1") {
+      history.replaceState({}, "", `${location.pathname}#account`);
+      state.route = "account";
+    } else applyHashRoute();
+    if (params.get("checkout") === "success" && state.user?.email) {
+      const confirmed = await confirmCheckoutSession(params.get("session_id"));
+      if (!confirmed) await syncMember();
+      history.replaceState({}, "", `${location.pathname}#account`);
+      state.route = "account";
+    }
+  } catch (error) {
+    state.authError = true;
+    state.adminVerified = false;
+    state.secureSession = false;
+    state.user = null;
+    state.accounts = [];
+    showToast("Secure sign-in could not be loaded. Reload the page to retry. Your membership has not changed.");
+  } finally {
+    state.authInitializing = false;
+    render();
+    loadRemoteArticles();
+    if (!state.authError) { syncMember(); refreshAdminStatus(); }
   }
-  history.replaceState({}, "", location.pathname);
-  setTimeout(() => showToast("Payment received. Your membership is being updated."), 300);
 }
-
-applyHashRoute();
-render();
-loadRemoteArticles();
-syncMember();
-refreshAdminStatus();
+startApplication();

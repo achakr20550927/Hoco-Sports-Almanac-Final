@@ -3,6 +3,7 @@ const { getUserEmail, requireAdmin, isAdminEmail } = require("./_admin");
 const { paid } = require("../../access-policy");
 const { rateLimit } = require("./_rate-limit");
 const { json } = require("./_security");
+const { authMode, verifiedUser } = require("./_auth");
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -38,14 +39,16 @@ async function handle(event, context) {
   const members = (await store.get("accounts", { type: "json" })) || [];
 
   if (event.httpMethod === "GET") {
-    if (event.queryStringParameters?.list === "all") {
-      const admin = requireAdmin(event, context);
+    if (event.queryStringParameters?.list === "all" || event.queryStringParameters?.backup === "1") {
+      if (event.queryStringParameters?.backup === "1" && !await verifiedUser(event)) return json(403, { error: "Verified admin login required for backup." });
+      const admin = await requireAdmin(event, context);
       if (!admin.ok) return admin.response;
+      if (event.queryStringParameters?.backup === "1") return json(200, { schemaVersion: 1, exportedAt: new Date().toISOString(), source: "Netlify members/accounts", recordCount: members.length, members });
       return json(200, {
         members: members.map(publicMember).sort((a, b) => String(b.signedUpAt || "").localeCompare(String(a.signedUpAt || ""))),
       });
     }
-    const email = normalizeEmail(getUserEmail(event, context) || event.queryStringParameters?.email);
+    const email = normalizeEmail(await getUserEmail(event, context));
     if (!email) return json(200, { member: null });
     return json(200, { member: publicMember(members.find((member) => normalizeEmail(member.email) === email)) });
   }
@@ -58,12 +61,17 @@ async function handle(event, context) {
   if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
 
   const body = JSON.parse(event.body || "{}");
-  const email = normalizeEmail(body.email);
+  const verified = await verifiedUser(event);
+  const secureRequest = authMode() === "identity" || Boolean(event.headers?.authorization || event.headers?.Authorization);
+  if (secureRequest && !verified) return json(401, { error: "Verify your email and log in to continue." });
+  const email = normalizeEmail(event.httpMethod === "PATCH" ? body.email : verified?.email || body.email);
   if (!email) return json(400, { error: "Email is required" });
 
   const existing = members.find((member) => normalizeEmail(member.email) === email);
+  if (!verified && existing?.authUserId && event.httpMethod === "POST") return json(401, { error: "Use your verified email and password to log in." });
+  if (verified && members.filter(member => normalizeEmail(member.email) === email).length > 1) return json(409, { error: "Duplicate membership records require support. Your subscription has not changed." });
   if (event.httpMethod === "PATCH") {
-    const admin = requireAdmin(event, context);
+    const admin = await requireAdmin(event, context);
     if (!admin.ok) return admin.response;
 
     if (!["free", "monthly", "annual"].includes(body.plan)) return json(400, { error: "Choose Free, Monthly, or Annual." });
@@ -92,6 +100,16 @@ async function handle(event, context) {
     return json(200, { member: publicMember(nextMember), members: next.map(publicMember) });
   }
 
+  // Verified users claim the existing record without resetting billing or paid-through dates.
+  if (verified && existing) {
+    if (existing.authUserId && existing.authUserId !== verified.id) return json(409, { error: "Account link requires support. Your subscription has not changed." });
+    if (!existing.authUserId) {
+      existing.authUserId = verified.id;
+      existing.authLinkedAt = new Date().toISOString();
+      await store.setJSON("accounts", members);
+    }
+    return json(200, { member: publicMember(existing), existingAccount: true });
+  }
   if (body.mode === "signup" && existing) {
     return json(200, { member: publicMember(existing), existingAccount: true });
   }
@@ -110,6 +128,7 @@ async function handle(event, context) {
     currentPeriodEnd: existing?.currentPeriodEnd,
     signedUpAt: existing?.signedUpAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    ...(verified ? { authUserId: verified.id, authLinkedAt: new Date().toISOString() } : {}),
   };
   const next = [nextMember, ...members.filter((member) => normalizeEmail(member.email) !== email)];
   await store.setJSON("accounts", next);

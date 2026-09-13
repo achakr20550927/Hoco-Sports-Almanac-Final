@@ -8,7 +8,7 @@ exports.handler = withErrorHandling(async (event, context) => {
   connectLambda(event);
   const store = getStore("newsletter");
   if (event.httpMethod === "GET") {
-    const admin = requireAdmin(event, context);
+    const admin = await requireAdmin(event, context);
     if (!admin.ok) return admin.response;
     const { blobs } = await store.list();
     const subscribers = (await Promise.all(blobs.map(({ key }) => store.get(key, { type: "json" })))).filter(Boolean);

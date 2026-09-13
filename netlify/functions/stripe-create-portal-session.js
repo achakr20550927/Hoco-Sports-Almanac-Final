@@ -15,7 +15,7 @@ exports.handler = require("./_security").withErrorHandling(async (event, context
   if (limited.limited) return json(429, { error: "Too many requests" }, { "retry-after": String(limited.retryAfter) });
 
   const { email } = JSON.parse(event.body || "{}");
-  const authenticatedEmail = getUserEmail(event, context);
+  const authenticatedEmail = await getUserEmail(event, context);
   const allowBodyEmail =
     process.env.ALLOW_DEV_ADMIN_HEADER === "true" ||
     process.env.NETLIFY_DEV === "true" ||

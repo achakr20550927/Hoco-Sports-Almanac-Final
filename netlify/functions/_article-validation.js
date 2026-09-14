@@ -18,6 +18,7 @@ const SPORTS = new Set([
   "softball",
   "tennis",
   "gymnastics",
+  "general",
 ]);
 const ACCESS = new Set(["public", "free", "paid", "admin"]);
 const STATUSES = new Set(["draft", "published", "archived"]);
@@ -38,6 +39,7 @@ function cleanText(value, max = 500) {
 function cleanUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  if (/^\/assets\/sports\/(field-hockey|flag-football|cheer)\.jpg$/.test(raw)) return raw;
   try {
     const url = new URL(raw);
     if (!["https:", "http:", "data:"].includes(url.protocol)) return "";

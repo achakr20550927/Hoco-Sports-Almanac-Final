@@ -19,9 +19,9 @@ const server = http.createServer(async (request, response) => {
       response.end(result.isBase64Encoded ? Buffer.from(result.body, "base64") : result.body);
       return;
     }
-    if (!allowed.has(url.pathname)) { response.writeHead(404).end(); return; }
+    if (!allowed.has(url.pathname) && !/^\/assets\/sports\/(field-hockey|flag-football|cheer)\.jpg$/.test(url.pathname)) { response.writeHead(404).end(); return; }
     const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-    response.writeHead(200, { "content-type": file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html", "cache-control": "no-store" });
+    response.writeHead(200, { "content-type": file.endsWith(".jpg") ? "image/jpeg" : file.endsWith(".js") ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html", "cache-control": "no-store" });
     response.end(fs.readFileSync(path.join(root, file)));
   } catch (error) { response.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ error: error.message })); }
 });

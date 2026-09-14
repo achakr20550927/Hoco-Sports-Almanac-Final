@@ -155,3 +155,89 @@ test("read meter resets before access check; cancellation appears only for paid 
   app.run("state.user.cancelAtPeriodEnd = true");
   assert.equal(app.run("accountPage()").includes("Cancel Subscription"), false);
 });
+
+test("search waits for submission without replacing the input after each character", async () => {
+  const app = frontend();
+  await app.run("loadRemoteArticles()");
+  app.run("routeTo('archive')");
+  const before = app.el("app").innerHTML;
+  for (const input of ["P", "Pu", "Public"]) app.run(`updateSearch({value:${JSON.stringify(input)}})`);
+  assert.equal(app.run("state.query"), "");
+  assert.equal(app.el("app").innerHTML, before);
+  app.run("submitSearch()");
+  assert.equal(app.run("state.query"), "Public");
+  assert.equal(app.run("filteredArticles().length"), 1);
+  app.run("clearFilters()");
+  assert.equal(app.run("state.searchDraft"), "");
+});
+
+test("discarding a stuck draft creates a fresh paid draft and retains a recoverable copy", () => {
+  const original = { id: "stuck-test", title: "Test", bodyHtml: "<p>Private test</p>", access: "admin" };
+  const app = frontend({ hoco_admin_draft: JSON.stringify(original) });
+  app.run("state.route='admin'; state.adminVerified=true; state.user={email:'owner@example.test'}");
+  app.run("newArticle()");
+  const next = JSON.parse(app.storage.hoco_admin_draft);
+  assert.notEqual(next.id, original.id);
+  assert.equal(next.access, "paid");
+  assert.equal(next.title, undefined);
+  assert.equal(JSON.parse(app.storage.hoco_discarded_draft).title, "Test");
+  assert.equal(frontend(app.storage).run("state.editorDraft.id"), next.id);
+  app.run("restoreDraft()");
+  assert.equal(app.run("state.editorDraft.id"), original.id);
+});
+
+test("stock defaults match the sport, replace only known defaults, and preserve uploads", () => {
+  const app = frontend();
+  for (const sport of ["field hockey", "flag football", "cheer"]) {
+    const expected = `/assets/sports/${sport.replaceAll(" ", "-")}.jpg`;
+    assert.equal(app.run(`usableArticleImage({sport:${JSON.stringify(sport)}})`), expected);
+    assert.equal(app.run(`usableArticleImage({sport:${JSON.stringify(sport)},image:'data:image/jpeg;base64,USER'})`), "data:image/jpeg;base64,USER");
+  }
+  assert.equal(app.run("usableArticleImage({sport:'cheer',image:'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1400'})"), "/assets/sports/cheer.jpg");
+  assert.match(app.run("archivePage()"), /value="general"/);
+  assert.match(app.run("publishPanel()"), /value="general"/);
+});
+
+test("image fallbacks use sport photos without intercepting article navigation", () => {
+  const app = frontend();
+  app.run("globalThis.testImage = {dataset:{imageSport:'cheer'},src:'broken',onerror:()=>{}}");
+  app.run("fallbackArticleImage(testImage)");
+  assert.equal(app.run("testImage.src"), "/assets/sports/cheer.jpg");
+  app.run("fallbackArticleImage(testImage)");
+  assert.equal(app.run("testImage.src"), app.run("defaultHeroImage"));
+  assert.equal(app.run("testImage.onerror"), null);
+  const html = app.run("card({slug:'cheer-test',title:'Cheer',sport:'cheer'})");
+  assert.match(html, /data-article="cheer-test"/);
+  assert.match(html, /data-image-sport="cheer"/);
+  assert.equal(html.includes('data-sport='), false);
+});
+
+test("a successful publish clears the draft even when browser storage is unavailable", async () => {
+  const app = frontend();
+  app.el("email").value = "owner@example.test";
+  await app.run("login('login')");
+  app.el("adminTitle").value = "General update";
+  app.el("adminBody").innerHTML = "<p>Reporting body</p>";
+  app.el("adminBody").textContent = "Reporting body";
+  app.el("adminBody").innerText = "Reporting body";
+  app.el("adminSport").value = "general";
+  app.run("localStorage.setItem = () => { throw new Error('Storage full'); }");
+  await app.run("publishArticle()");
+  assert.equal(app.run("state.adminTab"), "articles");
+  assert.equal(app.run("state.editorDraft"), null);
+  assert.equal(app.api.data.articles.published[0].sport, "general");
+});
+
+test("failed publishing leaves a visible error and offers draft recovery", async () => {
+  const app = frontend({}, async () => ({ ok: false, json: async () => ({ error: "Save unavailable" }) }));
+  app.run("state.user={email:'owner@example.test'}; state.adminVerified=true; state.route='admin'");
+  app.el("adminTitle").value = "Unpublished test";
+  app.el("adminBody").innerHTML = "<p>Testing</p>";
+  app.el("adminBody").textContent = "Testing";
+  app.el("adminBody").innerText = "Testing";
+  await app.run("publishArticle()");
+  assert.match(app.run("state.publishError"), /Save unavailable/);
+  assert.match(app.run("publishPanel()"), /role="alert"/);
+  assert.match(app.run("publishPanel()"), /Discard Draft/);
+  assert.equal(app.run("state.publishing"), false);
+});

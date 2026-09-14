@@ -11,6 +11,7 @@ function writeStorage(key, value) {
 const state = {
   route: "home",
   query: "",
+  searchDraft: "",
   sport: "All",
   year: "All",
   modal: null,
@@ -57,6 +58,7 @@ const sports = [
   "softball",
   "tennis",
   "gymnastics",
+  "general",
 ];
 const currentDate = new Intl.DateTimeFormat("en-US", {
   weekday: "long",
@@ -85,21 +87,33 @@ const articleImages = {
   volleyball:
     "https://images.unsplash.com/photo-1592656094267-764a45160876?auto=format&fit=crop&w=1400&q=80",
   cheer:
-    "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=1400&q=80",
+    "/assets/sports/cheer.jpg",
   "cross country":
     "https://images.unsplash.com/photo-1552674605-db6ffd4facb5?auto=format&fit=crop&w=1400&q=80",
   golf:
     "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1400&q=80",
   "field hockey":
-    "https://images.unsplash.com/photo-1600679472829-3044539ce8ed?auto=format&fit=crop&w=1400&q=80",
+    "/assets/sports/field-hockey.jpg",
   "flag football":
-    "https://images.unsplash.com/photo-1566577739112-5180d4bf9390?auto=format&fit=crop&w=1400&q=80",
+    "/assets/sports/flag-football.jpg",
   softball:
     "https://images.unsplash.com/photo-1562077772-3bd90403f7f0?auto=format&fit=crop&w=1400&q=80",
   tennis:
     "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?auto=format&fit=crop&w=1400&q=80",
   gymnastics:
     "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=1400&q=80",
+  general:
+    "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&w=1400&q=80",
+};
+const stockImageCredits = {
+  "field hockey": "Stock photo: Jeffrey F Lin / Unsplash",
+  "flag football": "Stock photo: Francesca Runza / Unsplash",
+  cheer: "Stock photo: Tim Mossholder / Unsplash",
+};
+const replacedStockImages = {
+  cheer: "photo-1546519638-68e109498ffc",
+  "field hockey": "photo-1600679472829-3044539ce8ed",
+  "flag football": "photo-1566577739112-5180d4bf9390",
 };
 const defaultHeroImage = articleImages.football;
 
@@ -451,6 +465,8 @@ function escapeHtml(value) {
 }
 
 function sportLabel(sport) {
+  if (sport === "All") return "All sports";
+  if (sport === "general") return "General";
   return String(sport || "").toLowerCase();
 }
 
@@ -754,7 +770,7 @@ function card(article, compact = false) {
   return `<article class="card">
     <a href="${routeHash(`article:${article.slug}`)}" data-article="${escapeHtml(article.slug)}">
       <div class="card-image">
-        <img src="${escapeHtml(usableArticleImage(article))}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${defaultHeroImage}'" />
+        <img src="${escapeHtml(usableArticleImage(article))}" alt="${escapeHtml(article.title)}" data-image-sport="${escapeHtml(article.sport)}" onerror="fallbackArticleImage(this)" />
         ${(article.access || article.premium) && (article.access || "paid") !== "public" ? `<span class="badge premium">${accessLabel(article.access || "paid")}</span>` : ""}
       </div>
       <div class="card-body">
@@ -784,8 +800,19 @@ function filteredArticles() {
 
 function usableArticleImage(article) {
   const image = String(article?.image || "").trim();
+  if (replacedStockImages[article?.sport] && image.includes(replacedStockImages[article.sport])) return articleImages[article.sport];
   if (image.includes("photo-1508098682722-e99c43a406b2")) return defaultHeroImage;
   return image || articleImages[article?.sport] || defaultHeroImage;
+}
+
+function fallbackArticleImage(image) {
+  if (!image.dataset.fallback) {
+    image.dataset.fallback = "sport";
+    image.src = articleImages[image.dataset.imageSport] || defaultHeroImage;
+  } else {
+    image.onerror = null;
+    image.src = defaultHeroImage;
+  }
 }
 
 function heroArticles() {
@@ -805,7 +832,7 @@ function homePage() {
   return `
     ${header()}
     <section class="hero">
-      <img class="hero-video" src="${escapeHtml(heroImage)}" alt="${escapeHtml(featured.title || "Howard County sports feature")}" onerror="this.onerror=null;this.src='${defaultHeroImage}'" />
+      <img class="hero-video" src="${escapeHtml(heroImage)}" alt="${escapeHtml(featured.title || "Howard County sports feature")}" data-image-sport="${escapeHtml(featured.sport)}" onerror="fallbackArticleImage(this)" />
       <div class="hero-content">
         <span class="kicker">Howard County Sports</span>
         <h1>${featured.title}</h1>
@@ -871,13 +898,14 @@ function archivePage() {
     ${header()}
     <section class="page-header"><div class="container"><span class="eyebrow">Archive and Search</span><h1>Find the county record by sport, year, or keyword.</h1></div></section>
     <main class="main container">
-      <div class="filter-panel">
+      <form class="filter-panel" role="search" onsubmit="event.preventDefault(); submitSearch()">
         <div class="filter-row">
-          <input class="input" id="archiveSearch" value="${escapeHtml(state.query)}" oninput="updateSearch(this)" placeholder="Search football, Glenelg, playoffs, archive..." />
-          <select class="select" onchange="state.sport=this.value; render()">${["All", ...sports].map((sport) => `<option ${state.sport === sport ? "selected" : ""}>${sport}</option>`).join("")}</select>
-          <select class="select" onchange="state.year=this.value; render()">${years.map((year) => `<option ${String(state.year) === String(year) ? "selected" : ""}>${year}</option>`).join("")}</select>
+          <input class="input" type="search" aria-label="Search articles" id="archiveSearch" value="${escapeHtml(state.searchDraft)}" oninput="updateSearch(this)" placeholder="Search football, Glenelg, playoffs, archive..." />
+          <button class="btn" type="submit">Search</button>
+          <select class="select" aria-label="Sport" onchange="state.sport=this.value; render()">${["All", ...sports].map((sport) => `<option value="${sport}" ${state.sport === sport ? "selected" : ""}>${sportLabel(sport)}</option>`).join("")}</select>
+          <select class="select" aria-label="Year" onchange="state.year=this.value; render()">${years.map((year) => `<option ${String(state.year) === String(year) ? "selected" : ""}>${year}</option>`).join("")}</select>
         </div>
-      </div>
+      </form>
       <div class="section-heading"><h2>${results.length} Results</h2><button class="btn-secondary" onclick="clearFilters()">Clear Filters</button></div>
       <div class="article-grid">${results.map((article) => card(article)).join("") || "<p>No stories match those filters yet.</p>"}</div>
     </main>
@@ -905,7 +933,7 @@ function articlePage(slug) {
     ${header()}
     <article class="article-shell">
       <section class="article-hero">
-        <img src="${escapeHtml(usableArticleImage(article))}" alt="${escapeHtml(article.title)}" onerror="this.onerror=null;this.src='${defaultHeroImage}'" />
+        <img src="${escapeHtml(usableArticleImage(article))}" alt="${escapeHtml(article.title)}" data-image-sport="${escapeHtml(article.sport)}" onerror="fallbackArticleImage(this)" />
         <div class="article-hero-content">
           <span class="badge">${sportLabel(article.sport)}</span>
           <h1>${article.title}</h1>
@@ -1014,9 +1042,10 @@ function publishPanel() {
   const draft = state.editorDraft;
   return `<div class="section-heading">
       <h2>${editingArticle ? "Edit Article" : "Publish Article"}</h2>
-      <span class="section-label">Admin-only workspace</span>
+      <button class="btn-secondary" type="button" onclick="newArticle()" ${state.publishing ? "disabled" : ""}>New Article</button>
     </div>
-    <form class="publish-grid" oninput="captureDraft()" onchange="captureDraft()" onsubmit="event.preventDefault(); publishArticle()">
+    ${state.publishError ? `<p class="account-note" role="alert">${escapeHtml(state.publishError)}</p>` : ""}
+    <form class="publish-grid" oninput="captureDraft(event)" onchange="captureDraft(event)" onsubmit="event.preventDefault(); publishArticle()">
       <section class="editor-panel">
         <label class="field-label">Headline</label>
         <input class="input headline-input" id="adminTitle" value="${escapeHtml(draft.title || "")}" placeholder="Write the article headline" required />
@@ -1055,7 +1084,8 @@ function publishPanel() {
         <button class="btn" type="submit" ${state.publishing ? "disabled" : ""}>${state.publishing ? "Saving..." : editingArticle ? "Save Changes" : "Publish Now"}</button>
         <button class="btn-secondary" type="button" onclick="saveDraft()">Save Draft</button>
         <button class="btn-secondary" type="button" onclick="previewDraft()">Preview</button>
-        ${editingArticle ? `<button class="btn-danger" type="button" onclick="cancelEdit()">Cancel Edit</button>` : ""}
+        <button class="btn-danger" type="button" onclick="${editingArticle ? "cancelEdit()" : "newArticle()"}" ${state.publishing ? "disabled" : ""}>${editingArticle ? "Cancel Edit" : "Discard Draft"}</button>
+        ${readStorage("hoco_discarded_draft", null) ? '<button class="btn-secondary" type="button" onclick="restoreDraft()">Restore Last Discarded Draft</button>' : ""}
         <p class="meta">On Netlify, published articles are stored in Netlify Blobs and become visible to every visitor.</p>
       </aside>
     </form>`;
@@ -1068,6 +1098,7 @@ function adminPanel() {
   if (state.adminTab === "articles") {
     const localOnly = localStoredArticles();
     return `<div class="section-heading"><h2>Article Manager</h2><button class="btn" onclick="newArticle()">New Article</button></div>
+      ${hasDraftContent(state.editorDraft) && !state.editingArticleId ? `<p class="account-note">Unpublished draft: ${escapeHtml(state.editorDraft.title || "Untitled")}. <button class="btn-secondary table-action" onclick="state.adminTab='publish'; render()">Resume Draft</button> <button class="btn-secondary table-action" onclick="newArticle()">Discard Draft</button></p>` : ""}
       ${articles.some((a) => a.access === "admin") ? '<p class="account-note">Private articles are hidden from readers. Edit a story and choose "paid members" to make it available to subscribers.</p>' : ""}
       ${localOnly.length ? `<p class="account-note">${localOnly.length} article${localOnly.length === 1 ? "" : "s"} saved only in this browser. <button class="btn-secondary table-action" onclick="syncLocalArticles()">Sync to Website</button></p>` : ""}
       <div class="table-wrap"><table class="data-table"><thead><tr><th>Headline</th><th>Sport</th><th>Access</th><th>Author</th><th>Views</th><th>Actions</th></tr></thead><tbody>${articles.map((a) => `<tr><td>${escapeHtml(a.title)}${a.featured ? " · Featured" : ""}</td><td>${sportLabel(a.sport)}</td><td>${accessLabel(a.access || "public")}</td><td>${escapeHtml(a.author || AUTHOR_NAME)}</td><td>${Number(a.views || 0).toLocaleString()}</td><td><button class="btn-secondary table-action" onclick="editArticle('${a.id}')">Edit</button> <button class="btn-danger table-action" onclick="deleteArticle('${a.id}')">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
@@ -1104,7 +1135,7 @@ function simplePage(title, deck) {
 function getDraftFromForm() {
   const sport = document.getElementById("adminSport")?.value || "football";
   const bodyHtml = document.getElementById("adminBody")?.innerHTML.trim() || "<p></p>";
-  const title = document.getElementById("adminTitle")?.value.trim() || "Untitled Story";
+  const title = document.getElementById("adminTitle")?.value.trim() || "";
   const subtitle = document.getElementById("adminSubtitle")?.value.trim() || "";
   const plainWords = document.getElementById("adminBody")?.innerText.trim().split(/\s+/).filter(Boolean).length || 0;
   return {
@@ -1114,11 +1145,11 @@ function getDraftFromForm() {
     subtitle,
     sport,
     year: Number(document.getElementById("adminYear")?.value) || new Date().getFullYear(),
-    image: document.getElementById("adminImage")?.value.trim() || articleImages[sport] || articleImages.football,
+    image: document.getElementById("adminImage")?.value.trim() || "",
     access: document.getElementById("adminAccess")?.value || "paid",
     featured: Boolean(document.getElementById("adminFeatured")?.checked),
     author: document.getElementById("adminAuthor")?.value.trim() || AUTHOR_NAME,
-    imageCredit: document.getElementById("adminImageCredit")?.value.trim() || "",
+    imageCredit: document.getElementById("adminImageCredit")?.value.trim() || (!document.getElementById("adminImage")?.value.trim() ? stockImageCredits[sport] || "" : ""),
     credits: document.getElementById("adminCredits")?.value.trim() || "",
     date: state.editorDraft?.date || new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(new Date()),
     readTime: Math.max(1, Math.ceil(plainWords / 238)),
@@ -1133,27 +1164,66 @@ function saveDraft() {
   showToast(writeStorage("hoco_admin_draft", state.editorDraft) ? "Draft saved in this browser." : "Browser storage is full. Keep this tab open and try publishing again.");
 }
 
-function captureDraft() {
+function captureDraft(event) {
   if (!document.getElementById("adminTitle")) return;
+  if (event?.target?.id === "adminSport") {
+    const image = document.getElementById("adminImage");
+    const credit = document.getElementById("adminImageCredit");
+    if (image && Object.values(articleImages).includes(image.value)) image.value = "";
+    if (credit && Object.values(stockImageCredits).includes(credit.value)) credit.value = "";
+  }
   state.editorDraft = getDraftFromForm();
   const notice = document.getElementById("privateNotice");
   if (notice) notice.hidden = state.editorDraft.access !== "admin";
 }
 
+function hasDraftContent(draft) {
+  return Boolean(draft && (draft.title || draft.subtitle || draft.image || /<img\b/i.test(draft.bodyHtml || "") || String(draft.bodyHtml || "").replace(/<[^>]*>/g, "").trim()));
+}
+
 function newArticle() {
+  if (state.publishing) return;
+  captureDraft();
+  if (hasDraftContent(state.editorDraft)) {
+    if (!writeStorage("hoco_discarded_draft", { ...state.editorDraft, editingArticleId: state.editingArticleId })) {
+      showToast("The draft could not be backed up. Keep this tab open and copy your work before trying again.");
+      return;
+    }
+  }
   state.editingArticleId = null;
-  state.editorDraft = null;
+  state.editorDraft = { id: `custom-${crypto.randomUUID()}`, access: "paid" };
+  writeStorage("hoco_admin_draft", state.editorDraft);
+  state.publishError = "";
   state.adminTab = "publish";
+  render();
+}
+
+function restoreDraft() {
+  if (state.publishing) return;
+  const saved = readStorage("hoco_discarded_draft", null);
+  if (!saved) return;
+  captureDraft();
+  if (hasDraftContent(state.editorDraft) && !writeStorage("hoco_discarded_draft", { ...state.editorDraft, editingArticleId: state.editingArticleId })) {
+    showToast("The current draft could not be backed up. Keep this tab open and try again.");
+    return;
+  }
+  const { editingArticleId, ...draft } = saved;
+  state.editorDraft = draft;
+  state.editingArticleId = editingArticleId || null;
+  state.publishError = "";
+  writeStorage("hoco_admin_draft", draft);
   render();
 }
 
 async function publishArticle() {
   if (state.publishing || !isAdmin()) return;
   const article = getDraftFromForm();
+  article.image = usableArticleImage(article);
   if (!document.getElementById("adminTitle")?.value.trim()) return showToast("A headline is required.");
   if (!document.getElementById("adminBody")?.textContent.trim() && !/<img\b/i.test(article.bodyHtml)) return showToast("Add the article body before publishing.");
   if (article.access === "admin" && !confirm("Publish privately? Paid members will not see or be able to read this article.")) return;
   state.editorDraft = article;
+  state.publishError = "";
   state.publishing = true;
   render();
   const wasEditing = Boolean(state.editingArticleId);
@@ -1170,12 +1240,13 @@ async function publishArticle() {
     articles = remoteArticles;
     state.editorDraft = null;
     state.editingArticleId = null;
-    localStorage.removeItem("hoco_admin_draft");
+    writeStorage("hoco_admin_draft", null);
     state.adminTab = "articles";
     showToast(article.access === "admin" ? "Private article saved. Hidden from readers." : "Article saved and available to readers.");
   } catch (error) {
     writeStorage("hoco_admin_draft", article);
-    showToast(`${error.message || "Article could not be saved."} Your draft is still open; it has not been published.`);
+    state.publishError = `${error.message || "Article could not be saved."} The draft has been kept here. Check Article Manager before retrying if the connection was interrupted, or choose New Article to start another story.`;
+    showToast(state.publishError);
   } finally {
     state.publishing = false;
     render();
@@ -1237,9 +1308,7 @@ async function editArticle(id) {
 }
 
 function cancelEdit() {
-  state.editingArticleId = null;
-  state.adminTab = "articles";
-  render();
+  newArticle();
 }
 
 async function deleteArticle(id) {
@@ -1510,6 +1579,7 @@ function setSport(sport, options = {}) {
 
 function clearFilters() {
   state.query = "";
+  state.searchDraft = "";
   state.sport = "All";
   state.year = "All";
   render();
@@ -1523,12 +1593,12 @@ function openSearch() {
 }
 
 function updateSearch(input) {
-  const position = input.selectionStart;
-  state.query = input.value;
+  state.searchDraft = input.value;
+}
+
+function submitSearch() {
+  state.query = state.searchDraft.trim();
   render();
-  const replacement = document.getElementById("archiveSearch");
-  replacement?.focus();
-  replacement?.setSelectionRange(position, position);
 }
 
 async function login(mode) {

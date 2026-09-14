@@ -28,10 +28,18 @@ test("article validation rejects invalid year and normalizes slug", () => {
 });
 
 test("article validation accepts expanded sport list", () => {
-  for (const sport of ["volleyball", "cheer", "cross country", "golf", "field hockey", "flag football", "softball", "tennis", "gymnastics"]) {
+  for (const sport of ["volleyball", "cheer", "cross country", "golf", "field hockey", "flag football", "softball", "tennis", "gymnastics", "general"]) {
     const article = normalizeArticle({ title: `${sport} story`, sport, year: 2026 });
     assert.equal(article.sport, sport);
   }
+});
+
+test("article validation retains the bundled sport cover paths", () => {
+  for (const sport of ["field hockey", "flag football", "cheer"]) {
+    const image = `/assets/sports/${sport.replaceAll(" ", "-")}.jpg`;
+    assert.equal(normalizeArticle({title:"Stock image",sport,image}).image, image);
+  }
+  assert.equal(normalizeArticle({title:"Unsafe image",image:"/arbitrary/path"}).image, "");
 });
 
 test("admin email parsing trims spaces and wrapper parentheses", () => {
